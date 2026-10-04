@@ -19,7 +19,7 @@
         <div class="brand-mark"><img src="https://imgur.com/Fb6WdvP.jpeg" alt="BAHABA Logo" class="brand-logo-img"></div>
         <div><h1>BAHABA Console</h1><div class="role-copy">Platform &amp; LGU Operations</div></div>
       </div>
-      <div class="quote" id="auth-side-quote">"<b>BAHABA built it, so BAHABA can see and manage all of it.</b> Each LGU account manages only its own barangay. Most updates arrive automatically from BAHABA's NLP system, which reads public social media posts for flood signals."</div>
+      <div class="quote" id="auth-side-quote">"<b>BAHABA built it, so BAHABA can see and manage all of it.</b> Each LGU account manages only its assigned location. Most updates arrive automatically from BAHABA's NLP system, which reads public social media posts for flood signals."</div>
       <svg class="waves" viewBox="0 0 412 120" preserveAspectRatio="none" style="height:100px;">
         <path d="M0,60 C60,30 100,85 160,60 C220,38 260,90 320,68 C360,54 390,62 412,60 L412,120 L0,120 Z" fill="#bcd9f4" opacity=".5"/>
         <path d="M0,75 C70,98 120,45 180,75 C240,105 280,52 340,75 C370,88 395,80 412,75 L412,120 L0,120 Z" fill="#1d6fe0" opacity=".9"/>
@@ -86,7 +86,7 @@
                 <div class="type-icon" style="background:var(--blue-100); color:var(--blue-600);">
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 21s7-6.5 7-11.5a7 7 0 0 0-14 0C5 14.5 12 21 12 21Z"/><circle cx="12" cy="9.5" r="2.4"/></svg>
                 </div>
-                <div><div class="type-name">LGU / Barangay</div><div class="type-desc">Manages one barangay</div></div>
+                <div><div class="type-name">LGU Admin</div><div class="type-desc">Manages one assigned location</div></div>
               </div>
               <div class="type-option" id="type-option-creator" onclick="selectAccountType('creator')">
                 <div class="type-icon" style="background:var(--navy-800); color:#fff;">
@@ -98,13 +98,8 @@
           </div>
 
           <div id="lgu-fields">
-            <div class="field-row">
-              <div class="field"><label>City / Municipality</label>
-                <select id="reg-city" onchange="populateRegBarangaySelect()"></select>
-              </div>
-              <div class="field"><label>Barangay</label>
-                <select id="reg-barangay"></select>
-              </div>
+            <div class="field"><label>Assigned location</label>
+              <select id="reg-location" required></select>
             </div>
           </div>
 
@@ -130,7 +125,7 @@
           </div>
           <div class="mini-note" style="margin-bottom:14px;">Password must be 8–12 characters and can only contain letters, numbers, and special characters (no spaces).</div>
 
-          <div class="mini-note" id="register-note">Barangay accounts are activated once the BAHABA team verifies your barangay affiliation. This usually takes 1–2 business days.</div>
+          <div class="mini-note" id="register-note">LGU accounts are activated after the BAHABA team verifies the account and assigned location.</div>
 
           <button type="submit" class="btn btn-primary" style="width:100%; margin-top:16px;">Create account</button>
         </form>
@@ -202,6 +197,10 @@
       Reports
       <span class="sb-lock" data-lock-icon><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4.5" y="10.5" width="15" height="9.5" rx="2.2"/><path d="M7.5 10.5V7.6a4.5 4.5 0 0 1 9 0v2.9"/></svg></span>
     </button>
+    <button class="sb-link platform-only-link" data-view="all-reports" onclick="go('all-reports')" style="display:none;">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 5.5h16M4 12h16M4 18.5h16"/><circle cx="7" cy="5.5" r="1" fill="currentColor"/><circle cx="7" cy="12" r="1" fill="currentColor"/><circle cx="7" cy="18.5" r="1" fill="currentColor"/></svg>
+      All Reports
+    </button>
     <button class="sb-link" data-view="announcements" onclick="go('announcements')">
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
       Announcements
@@ -209,6 +208,10 @@
     </button>
 
     <div class="sb-section-label">Platform</div>
+    <button class="sb-link" data-view="users" onclick="go('users')">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M16.5 20v-1.2A3.3 3.3 0 0 0 13.2 15h-2.4a3.3 3.3 0 0 0-3.3 3.8V20"/><circle cx="12" cy="8" r="3"/><path d="M19.5 20v-1.1A3.6 3.6 0 0 0 17 15.5"/><path d="M4.5 20v-1.1A3.6 3.6 0 0 1 7 15.5"/></svg>
+      Account Manager
+    </button>
     <button class="sb-link" data-view="logs" onclick="go('logs')">
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4.5" y="10.5" width="15" height="9.5" rx="2.2"/><path d="M7.5 10.5V7.6a4.5 4.5 0 0 1 9 0v2.9"/><circle cx="12" cy="15" r="1.3" fill="currentColor" stroke="none"/></svg>
       System Logs &amp; Security
@@ -256,6 +259,32 @@
       </div>
       <div id="command-banner"></div>
       <div class="metric-row" id="command-metrics"></div>
+      <div class="panel command-contact-panel">
+        <div class="panel-head">
+          <h3>Command Center contacts</h3>
+          <select id="command-location-select" aria-label="Command Center location" onchange="changeAdminLocation('command-location-select')"></select>
+          <span id="command-location-label"></span>
+        </div>
+        <form class="panel-body" id="command-center-form" onsubmit="saveCommandCenter(event)">
+          <div class="field-row">
+            <div class="field"><label>Command Center name</label><input id="command-center-name" maxlength="255"></div>
+            <div class="field"><label>Hotline</label><input id="command-center-hotline" maxlength="100"></div>
+          </div>
+          <div class="field-row">
+            <div class="field"><label>Telephone</label><input id="command-center-telephone" maxlength="100"></div>
+            <div class="field"><label>Mobile number</label><input id="command-center-mobile" maxlength="100"></div>
+          </div>
+          <div class="field-row">
+            <div class="field"><label>Email</label><input id="command-center-email" type="email" maxlength="254"></div>
+            <div class="field"><label>Facebook page</label><input id="command-center-facebook" maxlength="500"></div>
+          </div>
+          <div class="field"><label>Address</label><input id="command-center-address" maxlength="500"></div>
+          <div class="field"><label>Emergency contact information</label><textarea id="command-center-emergency" maxlength="20000"></textarea></div>
+          <div class="field"><label>Other information</label><textarea id="command-center-other" maxlength="20000"></textarea></div>
+          <button class="btn btn-primary" type="submit">Save Command Center</button>
+          <div class="form-alert" id="command-center-alert" role="status"></div>
+        </form>
+      </div>
       <div class="panel">
         <div class="panel-head">
           <h3 id="command-panel-title">Barangay Status</h3>
@@ -284,10 +313,76 @@
           <h2>Reports</h2>
           <div class="view-sub">Most reports arrive automatically — BAHABA's NLP system reads public social media posts for flood signals. Verify what's accurate so it reaches the Command Center and citizen app.</div>
         </div>
-        <select class="barangay-select" id="reports-barangay-select" onchange="renderReports()"></select>
+        <div class="view-head-actions">
+          <select class="barangay-select platform-location-select" id="reports-location-select" aria-label="Reports location" onchange="changeAdminLocation('reports-location-select')"></select>
+          <select class="barangay-select" id="reports-barangay-select" onchange="renderReports()"></select>
+        </div>
+      </div>
+      <div class="panel nlp-monitor-panel">
+        <div class="panel-head nlp-monitor-heading">
+          <div><h3>NLP Live Monitor</h3><div class="nlp-monitor-caption">Social posts classified by BAHABA’s flood detection pipeline.</div></div>
+          <div class="nlp-monitor-actions"><span class="nlp-live-badge connecting" id="nlp-live-badge"><i></i><span id="nlp-live-label">Connecting</span></span><button class="btn btn-outline btn-sm" type="button" onclick="refreshNlpEvents()">Refresh</button></div>
+        </div>
+        <div class="nlp-monitor-body">
+          <div class="nlp-stats-grid" id="nlp-stats"></div>
+          <div class="nlp-feed-alert" id="nlp-feed-alert" style="display:none;"></div>
+          <div class="nlp-events-wrap">
+            <table class="nlp-events-table">
+              <thead><tr><th>POST / LOCATION</th><th>CLASSIFICATION</th><th>SEVERITY</th><th>URGENCY</th><th>CONFIDENCE</th><th>DETECTED</th></tr></thead>
+              <tbody id="nlp-events-list"><tr><td colspan="6" class="nlp-empty">Connecting to NLP event feed…</td></tr></tbody>
+            </table>
+          </div>
+          <div class="nlp-monitor-footer"><span id="nlp-results-count">Waiting for first sync</span><span>Auto-refreshes every 5 seconds</span></div>
+        </div>
       </div>
       <div class="chip-filter" id="reports-filter"></div>
       <div class="panel"><div class="panel-body" id="reports-list"></div></div>
+    </section>
+
+    <!-- ============ PLATFORM-WIDE REPORTS (PLATFORM ADMIN ONLY) ============ -->
+    <section class="view" data-view="all-reports" id="view-all-reports">
+      <div class="view-head">
+        <div>
+          <h2>All Reports</h2>
+          <div class="view-sub">Platform-wide flood reports and NLP detections from every city and barangay. LGU accounts continue to see only their assigned barangay in Reports.</div>
+        </div>
+        <button class="btn btn-outline" type="button" onclick="refreshAllReports()">Refresh all reports</button>
+      </div>
+      <div class="metric-row" id="all-reports-metrics"></div>
+      <div class="panel nlp-monitor-panel all-reports-nlp-panel">
+        <div class="panel-head nlp-monitor-heading">
+          <div><h3>Platform-wide NLP Live Monitor</h3><div class="nlp-monitor-caption">Live classifications from every city and barangay, including source post links when supplied.</div></div>
+          <div class="nlp-monitor-actions"><span class="nlp-live-badge connecting" id="all-nlp-live-badge"><i></i><span id="all-nlp-live-label">Connecting</span></span><button class="btn btn-outline btn-sm" type="button" onclick="refreshAllReports()">Refresh feed</button></div>
+        </div>
+        <div class="nlp-monitor-body">
+          <div class="nlp-stats-grid" id="all-nlp-stats"></div>
+          <div class="nlp-feed-alert" id="all-nlp-feed-alert" style="display:none;"></div>
+          <div class="nlp-events-wrap">
+            <table class="nlp-events-table all-nlp-events-table">
+              <thead><tr><th>ORIGINAL POST / LOCATION</th><th>CLASSIFICATION</th><th>SEVERITY</th><th>URGENCY</th><th>CONFIDENCE</th><th>DETECTED</th><th>VERIFY</th></tr></thead>
+              <tbody id="all-nlp-events-list"><tr><td colspan="7" class="nlp-empty">Connecting to the all-location NLP feed…</td></tr></tbody>
+            </table>
+          </div>
+          <div class="nlp-monitor-footer"><span id="all-nlp-results-count">Waiting for first sync</span><span>Auto-refreshes every 5 seconds</span></div>
+        </div>
+      </div>
+      <div class="all-reports-toolbar">
+        <input id="all-reports-search" type="search" placeholder="Search post, reporter, city, or barangay…" oninput="renderAllReports()">
+        <select id="all-reports-source" onchange="renderAllReports()" aria-label="Filter reports by source">
+          <option value="all">All sources</option>
+          <option value="nlp">NLP detections</option>
+          <option value="citizen">Resident reports</option>
+        </select>
+        <select id="all-reports-status" onchange="renderAllReports()" aria-label="Filter reports by status">
+          <option value="all">All statuses</option>
+          <option value="new">New NLP signals</option>
+          <option value="pending">Pending</option>
+          <option value="verified">Verified</option>
+          <option value="rejected">Rejected</option>
+        </select>
+      </div>
+      <div class="panel"><div class="panel-body" id="all-reports-list"><div class="empty-state"><div class="t">Loading platform-wide reports…</div></div></div></div>
+      <div class="all-reports-sync" id="all-reports-sync">Auto-refreshes every 5 seconds</div>
     </section>
 
     <!-- ============ ANNOUNCEMENTS ============ -->
@@ -298,6 +393,7 @@
           <div class="view-sub" id="ann-sub">Publish updates for residents — advisories, evacuation calls, or all-clears.</div>
         </div>
         <div style="display:flex; gap:10px; align-items:center;">
+          <select class="barangay-select platform-location-select" id="ann-location-select" aria-label="Announcements location" onchange="changeAdminLocation('ann-location-select')"></select>
           <select class="barangay-select" id="ann-barangay-select" onchange="renderAnnouncements()"></select>
           <button class="btn btn-primary" onclick="openAnnComposer()">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3"><path d="M12 5v14M5 12h14"/></svg>
@@ -320,6 +416,157 @@
 
       <div class="chip-filter" id="ann-filter"></div>
       <div class="panel"><div class="panel-body" id="ann-list"></div></div>
+    </section>
+
+    <!-- ============ ACCOUNT MANAGER ============ -->
+    <section class="view" data-view="users" id="view-users">
+      <div class="view-head">
+        <div>
+          <h2>Account Manager</h2>
+          <div class="view-sub">Manage admin users, enable or disable access, and add new staff accounts to the platform.</div>
+        </div>
+      </div>
+
+      <div class="metric-row" id="user-manager-summary"></div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <h3>New admin account</h3>
+        </div>
+        <div class="panel-body" style="padding:18px 20px;">
+          <form id="new-user-form" onsubmit="addUserAccount(event)">
+            <div class="field-row">
+              <div class="field">
+                <label>Full name</label>
+                <input type="text" id="new-user-name" placeholder="e.g. Nina Santos" required>
+              </div>
+              <div class="field">
+                <label>Email</label>
+                <input type="email" id="new-user-email" placeholder="name@bahaba.ph" required>
+              </div>
+            </div>
+            <div class="field-row">
+              <div class="field">
+                <label>Role</label>
+                <select id="new-user-role">
+                  <option value="platform-admin">Platform Admin</option>
+                  <option value="lgu-admin">LGU / Barangay Admin</option>
+                </select>
+              </div>
+              <div class="field">
+                <label>Assigned location</label>
+                <select id="new-user-location" required></select>
+              </div>
+            </div>
+            <div class="field">
+              <label>Password</label>
+              <input type="text" id="new-user-password" placeholder="Create a password" required>
+            </div>
+            <button class="btn btn-primary" type="submit">Add user</button>
+          </form>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head" style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;">
+          <h3>Admin users</h3>
+          <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-left:auto;">
+            <input type="text" id="admin-user-search" placeholder="Search admin users..." style="min-width:210px;">
+            <select id="admin-user-status-filter">
+              <option value="all">All statuses</option>
+              <option value="active">Active</option>
+              <option value="disabled">Disabled</option>
+            </select>
+          </div>
+        </div>
+        <div class="panel-body">
+          <table class="logs-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Email</th>
+                <th>Role</th>
+                <th>Location</th>
+                <th>Status</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="user-manager-admin-table-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="panel" style="margin-top:20px;">
+        <div class="panel-head" style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;">
+          <h3>App users</h3>
+          <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-left:auto;">
+            <input type="text" id="app-user-search" placeholder="Search app users..." style="min-width:210px;">
+            <select id="app-user-status-filter">
+              <option value="all">All statuses</option>
+              <option value="verified">Verified</option>
+              <option value="pending">Pending</option>
+            </select>
+          </div>
+        </div>
+        <div class="panel-body">
+          <table class="logs-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Email</th>
+                <th>Role</th>
+                <th>Location</th>
+                <th>Status</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="user-manager-app-table-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div id="app-user-profile-modal" style="display:none; position:fixed; inset:0; background:rgba(8,15,30,0.62); z-index:200; align-items:center; justify-content:center; padding:24px;">
+        <div style="width:min(560px, 100%); background:#111827; border:1px solid rgba(148,163,184,0.25); border-radius:14px; box-shadow:0 18px 40px rgba(15,23,42,0.4);">
+          <div style="display:flex; justify-content:space-between; align-items:center; padding:18px 20px; border-bottom:1px solid rgba(148,163,184,0.18);">
+            <h3 style="margin:0; font-size:1.1rem;">App User Profile</h3>
+            <button type="button" class="btn btn-outline btn-sm" onclick="closeAppUserProfile()">Close</button>
+          </div>
+          <div id="app-user-profile-content" style="padding:18px 20px 0;"></div>
+          <form id="app-user-edit-form" onsubmit="saveAppUserProfile(event)" style="padding:18px 20px 20px;">
+            <div class="field-row">
+              <div class="field">
+                <label>Full name</label>
+                <input type="text" id="app-user-edit-name" required>
+              </div>
+              <div class="field">
+                <label>Email</label>
+                <input type="email" id="app-user-edit-email" required>
+              </div>
+            </div>
+            <div class="field-row">
+              <div class="field">
+                <label>City</label>
+                <input type="text" id="app-user-edit-city">
+              </div>
+              <div class="field">
+                <label>Location</label>
+                <input type="text" id="app-user-edit-location">
+              </div>
+            </div>
+            <div class="field">
+              <label>Status</label>
+              <select id="app-user-edit-status">
+                <option value="verified">Verified</option>
+                <option value="pending">Pending</option>
+              </select>
+            </div>
+            <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:16px;">
+              <button type="button" class="btn btn-outline" onclick="closeAppUserProfile()">Cancel</button>
+              <button type="submit" class="btn btn-primary">Save changes</button>
+            </div>
+          </form>
+        </div>
+      </div>
     </section>
 
     <!-- ============ SYSTEM LOGS & SECURITY ============ -->
