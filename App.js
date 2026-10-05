@@ -3,6 +3,8 @@
    ============================================================ */
 let activeCity = '';
 let SUPPORTED_LOCATIONS = [];
+let EVACUATION_CENTERS = [];
+let evacuationCentersRequest = 0;
 
 async function loadSupportedLocations() {
   const response = await fetch(`${ADMIN_API_URL}?action=locations`, { headers: { Accept: 'application/json' } });
@@ -427,10 +429,12 @@ function getCityBarangays(cityName = currentCity()) {
 
 function scopedBarangays() {
   const cityData = getCityBarangays();
+  const cityBarangays = METRO_MANILA_BARANGAYS[currentCity()] || Object.keys(cityData);
   if (canAdminModule(session, 'admin_overview')) {
-    return Object.keys(cityData);
+    return cityBarangays.length ? cityBarangays : ['All barangays'];
   }
-  return [session.barangay];
+  if (session.barangay) return [session.barangay];
+  return cityBarangays.length ? cityBarangays : ['All barangays'];
 }
 
 /* ============================================================
@@ -740,11 +744,17 @@ function populateBarangaySelects(){
   ['evac-barangay-select','reports-barangay-select','ann-barangay-select'].forEach(id=>{
     const el = document.getElementById(id);
     if (!el) return;
-    el.innerHTML = list.map(b=>`<option value="${b}">Brgy. ${b}</option>`).join('');
-    el.value = session.activeBarangay;
+    el.innerHTML = list.map(b=>`<option value="${escapeNlpText(b)}">Brgy. ${escapeNlpText(b)}</option>`).join('');
+    el.value = list.includes(session.activeBarangay) ? session.activeBarangay : list[0] || '';
+    if (id === 'evac-barangay-select') session.activeBarangay = el.value;
     el.disabled = list.length <= 1;
     el.style.display = list.length <= 1 ? 'none' : '';
   });
+  const centerBarangay = document.getElementById('evac-center-barangay');
+  if (centerBarangay) {
+    centerBarangay.innerHTML = list.map(b=>`<option value="${escapeNlpText(b)}">Brgy. ${escapeNlpText(b)}</option>`).join('');
+    centerBarangay.value = list.includes(session.activeBarangay) ? session.activeBarangay : list[0] || '';
+  }
 }
 
 /* ============================================================
@@ -769,7 +779,9 @@ function go(viewName){
 
   const titles = {command:'Command Center', evacuees:'Evacuees', reports:'Reports', 'all-reports':'All Reports', announcements:'Announcements', logs:'System Logs & Security', users:'Account Manager'};
   document.getElementById('tb-title').textContent = titles[viewName];
-  document.getElementById('tb-scope').textContent = canAdminModule(session, 'admin_overview') ? `All Metro Manila Cities (${activeCity})` : `${session.city} — Brgy. ${session.barangay}`;
+  document.getElementById('tb-scope').textContent = canAdminModule(session, 'admin_overview')
+    ? `All Metro Manila Cities (${activeCity})`
+    : `${session.city} — Brgy. ${session.barangay || session.activeBarangay || 'All barangays'}`;
   document.getElementById('tb-bell-badge').textContent = bellCount();
 
   if(viewName==='command') renderCommand();
@@ -1275,7 +1287,7 @@ function renderCommand(){
 
   document.getElementById('command-sub').textContent = isFullAdmin
     ? `Live flood status across active barangays in ${cCity}.`
-    : `Live flood status for Barangay ${session.barangay}, ${session.city}.`;
+    : `Live flood status for Barangay ${session.barangay || session.activeBarangay || 'all barangays'}, ${session.city}.`;
   document.getElementById('command-panel-title').textContent = `Barangay Status — ${cCity}`;
 
   const totals = scope.reduce((acc,b)=>{
@@ -1332,6 +1344,7 @@ function renderEvacuees(){
   const cCity = currentCity();
 
   const canEditCount = canCreateModule(session, 'products');
+  document.getElementById('evac-create-form').hidden = !canEditCount;
   document.getElementById('evac-scope-banner').innerHTML = canAdminModule(session, 'products') ? `
     <div class="locked-banner">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 21V8l9-5 9 5v13"/><path d="M9 21v-6h6v6"/></svg>
@@ -1342,41 +1355,180 @@ function renderEvacuees(){
       <div>Managing centers for <b>Barangay ${b}, ${cCity}</b>.</div>
     </div>`;
 
-  const cityData = getCityBarangays(cCity);
-  const data = cityData[b] || { centers: [] };
-  
-  document.getElementById('evac-grid').innerHTML = data.centers.map(c=>{
-    const pct = Math.min(100, Math.round((c.evacuees/c.capacity)*100));
+  const grid = document.getElementById('evac-grid');
+  grid.innerHTML = '<div class="empty-state">Loading evacuation centers…</div>';
+  loadEvacuationCenters(cCity, b);
+}
+
+async function loadEvacuationCenters(city, barangay){
+  const requestId = ++evacuationCentersRequest;
+  const locationId = session.assigned_location || locationIdForCity(city);
+  if (!locationId) {
+    document.getElementById('evac-grid').innerHTML = '<div class="empty-state">Choose a supported location to view its evacuation centers.</div>';
+    return;
+  }
+  const params = new URLSearchParams({ action: 'evacuation-centers', location: locationId, barangay });
+  try {
+    const response = await fetch(`${ADMIN_API_URL}?${params.toString()}`, {
+      credentials: 'include',
+      headers: { Accept: 'application/json' },
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error || 'Could not load evacuation centers.');
+    if (requestId !== evacuationCentersRequest) return;
+    EVACUATION_CENTERS = Array.isArray(result.centers) ? result.centers : [];
+    renderEvacuationCenterCards(city, barangay);
+  } catch(error) {
+    if (requestId !== evacuationCentersRequest) return;
+    document.getElementById('evac-grid').innerHTML = `<div class="empty-state error">${escapeNlpText(error.message)} <button class="btn btn-outline btn-sm" onclick="renderEvacuees()">Try again</button></div>`;
+  }
+}
+
+function renderEvacuationCenterCards(city, barangay){
+  const canEditCount = canCreateModule(session, 'products');
+  const centers = EVACUATION_CENTERS.filter((center) => center.barangay === barangay);
+  if (!centers.length) {
+    document.getElementById('evac-grid').innerHTML = '<div class="empty-state">No evacuation centers have been added for this barangay yet.</div>';
+    return;
+  }
+
+  document.getElementById('evac-grid').innerHTML = centers.map((center)=>{
+    const capacity = Number(center.capacity);
+    const evacuees = Number(center.evacuees);
+    const pct = capacity > 0 ? Math.min(100, Math.round((evacuees/capacity)*100)) : 0;
     const fillCls = pct>=90 ? 'full' : pct>=65 ? 'warn' : '';
     return `<div class="evac-card">
       <div class="evac-card-head">
-        <div><div class="evac-title">${c.name}</div><div class="evac-loc">Brgy. ${b}, ${cCity}</div></div>
+        <div><div class="evac-title">${escapeNlpText(center.name)}</div><div class="evac-loc">Brgy. ${escapeNlpText(center.barangay)}, ${escapeNlpText(city)}</div></div>
+        ${Number(center.can_delete) === 1 ? `<button class="btn btn-outline btn-sm evac-delete-btn" onclick="deleteEvacuationCenter(${Number(center.id)})">Delete</button>` : ''}
       </div>
       <div class="cap-bar-track"><div class="cap-bar-fill ${fillCls}" style="width:${pct}%;"></div></div>
-      <div class="evac-nums"><span>${c.evacuees.toLocaleString()} evacuees</span><span>${c.capacity.toLocaleString()} capacity</span></div>
+      <div class="evac-nums"><span>${evacuees.toLocaleString()} evacuees</span><span>${capacity.toLocaleString()} capacity</span></div>
+      ${center.address ? `<div class="evac-loc">${escapeNlpText(center.address)}</div>` : ''}
+      <div class="evac-loc">Added by ${escapeNlpText(center.created_by || 'LGU')}</div>
       ${canEditCount ? `
       <div class="evac-edit-row">
-        <input type="number" min="0" max="${c.capacity}" value="${c.evacuees}" id="evac-input-${c.id}">
-        <button class="btn btn-outline btn-sm" onclick="updateEvacCount('${b}','${c.id}')">Update count</button>
+        <input type="number" min="0" max="${capacity}" value="${evacuees}" id="evac-input-${Number(center.id)}">
+        <button class="btn btn-outline btn-sm" onclick="updateEvacCount(${Number(center.id)})">Update count</button>
       </div>` : ''}
     </div>`;
   }).join('');
 }
 
-function updateEvacCount(b, centerId){
+async function createEvacuationCenter(event){
+  event.preventDefault();
+  if (!canCreateModule(session, 'products')) {
+    showToast('Permission denied: Cannot add evacuation centers');
+    return;
+  }
+  const form = event.currentTarget;
+  const city = currentCity();
+  const payload = {
+    action: 'evacuation-center-create',
+    location_id: session.assigned_location || locationIdForCity(city),
+    barangay: document.getElementById('evac-center-barangay').value,
+    name: document.getElementById('evac-center-name').value.trim(),
+    address: document.getElementById('evac-center-address').value.trim(),
+    capacity: Number(document.getElementById('evac-center-capacity').value),
+    evacuees: Number(document.getElementById('evac-center-count').value),
+  };
+  const alert = document.getElementById('evac-create-alert');
+  const submitButton = event.currentTarget.querySelector('button[type="submit"]');
+  submitButton.disabled = true;
+  try {
+    const response = await fetch(ADMIN_API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(payload),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error || 'Could not add evacuation center.');
+    form.reset();
+    document.getElementById('evac-center-barangay').value = payload.barangay;
+    document.getElementById('evac-center-count').value = '0';
+    alert.textContent = 'Evacuation center added. Residents can now view it in the app.';
+    alert.className = 'form-alert success show';
+    logAction('Evacuees', 'Create', `Added evacuation center "${payload.name}" in Brgy. ${payload.barangay}, ${city}.`);
+    document.getElementById('evac-barangay-select').value = payload.barangay;
+    session.activeBarangay = payload.barangay;
+    await loadEvacuationCenters(city, payload.barangay);
+  } catch(error) {
+    alert.textContent = error.message;
+    alert.className = 'form-alert error show';
+  } finally {
+    submitButton.disabled = false;
+  }
+}
+
+async function deleteEvacuationCenter(centerId){
+  if (!canCreateModule(session, 'products')) {
+    showToast('Permission denied: Cannot delete evacuation centers');
+    return;
+  }
+  const center = EVACUATION_CENTERS.find((item) => Number(item.id) === centerId);
+  if (!center || Number(center.can_delete) !== 1) {
+    showToast('You can only delete evacuation centers created by your account.');
+    return;
+  }
+  if (!window.confirm(`Delete "${center.name}"? Residents will no longer see this center.`)) return;
+  const city = currentCity();
+  const locationId = session.assigned_location || locationIdForCity(city);
+  try {
+    const response = await fetch(ADMIN_API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        action: 'evacuation-center-delete',
+        location_id: locationId,
+        id: centerId,
+      }),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error || 'Could not delete evacuation center.');
+    logAction('Evacuees', 'Delete', `Deleted evacuation center "${center.name}" in Brgy. ${center.barangay}, ${city}.`);
+    showToast(`${center.name} deleted`);
+    await loadEvacuationCenters(city, center.barangay);
+  } catch(error) {
+    showToast(error.message);
+  }
+}
+
+async function updateEvacCount(centerId){
   if (!canCreateModule(session, 'products')) {
     showToast('Permission denied: Cannot modify counts');
     return;
   }
-  const cCity = currentCity();
+  const city = currentCity();
+  const locationId = session.assigned_location || locationIdForCity(city);
   const input = document.getElementById(`evac-input-${centerId}`);
-  const val = Math.max(0, parseInt(input.value || '0', 10));
-  const cityData = getCityBarangays(cCity);
-  const center = cityData[b].centers.find(c=>c.id===centerId);
-  center.evacuees = Math.min(val, center.capacity);
-  renderEvacuees();
-  logAction("Evacuees", "Update", `Evacuee count for "${center.name}" (Brgy. ${b}, ${cCity}) changed to ${center.evacuees.toLocaleString()}.`);
-  showToast(`${center.name} updated — ${center.evacuees.toLocaleString()} evacuees`);
+  const evacuees = Number(input.value);
+  const center = EVACUATION_CENTERS.find((item) => Number(item.id) === centerId);
+  if (!center || !Number.isInteger(evacuees) || evacuees < 0 || evacuees > Number(center.capacity)) {
+    showToast('Enter a whole number within the center capacity.');
+    return;
+  }
+  try {
+    const response = await fetch(ADMIN_API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        action: 'evacuation-center-count',
+        location_id: locationId,
+        id: centerId,
+        evacuees,
+      }),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error || 'Could not update evacuee count.');
+    logAction('Evacuees', 'Update', `Evacuee count for "${center.name}" (Brgy. ${center.barangay}, ${city}) changed to ${evacuees.toLocaleString()}.`);
+    showToast(`${center.name} updated — ${evacuees.toLocaleString()} evacuees`);
+    await loadEvacuationCenters(city, center.barangay);
+  } catch(error) {
+    showToast(error.message);
+  }
 }
 
 /* ============================================================

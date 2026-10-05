@@ -69,6 +69,7 @@ $pdo->exec("CREATE TABLE IF NOT EXISTS admin_users (
 )");
 
 bahaba_ensure_location_schema($pdo);
+bahaba_ensure_column($pdo, 'evacuation_centers', 'created_by_admin_id', 'BIGINT UNSIGNED NULL');
 
 function current_admin(PDO $pdo): ?array
 {
@@ -176,6 +177,20 @@ $method = $_SERVER['REQUEST_METHOD'];
 $path = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
 $input = json_decode(file_get_contents('php://input'), true) ?? [];
 $action = $_GET['action'] ?? ($input['action'] ?? null);
+$parseUnsignedInteger = static function (mixed $value): ?int {
+    if (is_int($value)) {
+        return $value >= 0 ? $value : null;
+    }
+    if (!is_string($value) || !preg_match('/^\d+$/D', $value)) {
+        return null;
+    }
+    $normalized = ltrim($value, '0');
+    $normalized = $normalized === '' ? '0' : $normalized;
+    if (strlen($normalized) > 18) {
+        return null;
+    }
+    return (int) $normalized;
+};
 
 if ($method === 'GET' && $action === 'health') {
     echo json_encode([
@@ -190,6 +205,40 @@ if ($method === 'GET' && $action === 'health') {
 
 if ($method === 'GET' && $action === 'locations') {
     echo json_encode(['locations' => bahaba_supported_locations()]);
+    exit;
+}
+
+if ($method === 'GET' && $action === 'evacuation-centers') {
+    $admin = current_admin($pdo);
+    if (!$admin) {
+        http_response_code(401);
+        echo json_encode(['error' => 'Admin session required.']);
+        exit;
+    }
+    if (!in_array(strtolower((string) ($admin['acls']['products'] ?? '')), ['full', 'edit', 'view'], true)) {
+        http_response_code(403);
+        echo json_encode(['error' => 'You do not have permission to view evacuation centers.']);
+        exit;
+    }
+    $location = requested_location($admin, $_GET['location'] ?? $admin['assigned_location'] ?? $admin['city'] ?? null);
+    $barangay = trim((string) ($_GET['barangay'] ?? ''));
+    $statement = $pdo->prepare(
+        'SELECT id, location_id, city, barangay, name, address, capacity, evacuees, created_by, created_at,
+                CASE WHEN created_by_admin_id = :admin_id
+                          OR (created_by_admin_id IS NULL AND LOWER(TRIM(created_by)) = LOWER(TRIM(:admin_org)))
+                     THEN 1 ELSE 0 END AS can_delete
+         FROM evacuation_centers
+         WHERE location_id = :location_id AND (:barangay_filter = \'\' OR barangay = :barangay_match)
+         ORDER BY barangay, name, id'
+    );
+    $statement->execute([
+        'admin_id' => (int) $admin['id'],
+        'admin_org' => trim((string) ($admin['org'] ?? '')) ?: $admin['name'],
+        'location_id' => $location['id'],
+        'barangay_filter' => $barangay,
+        'barangay_match' => $barangay,
+    ]);
+    echo json_encode(['location' => $location, 'centers' => $statement->fetchAll()]);
     exit;
 }
 
@@ -516,6 +565,160 @@ if ($method === 'POST') {
         );
         $statement->execute(['location_id' => $location['id']] + $values);
         echo json_encode(['success' => true, 'location_id' => $location['id']]);
+        exit;
+    }
+
+    if ($action === 'evacuation-center-create') {
+        $admin = current_admin($pdo);
+        if (!$admin) {
+            http_response_code(401);
+            echo json_encode(['error' => 'Admin session required.']);
+            exit;
+        }
+        if (!in_array(strtolower((string) ($admin['acls']['products'] ?? '')), ['full', 'edit'], true)) {
+            http_response_code(403);
+            echo json_encode(['error' => 'You do not have permission to add evacuation centers.']);
+            exit;
+        }
+        $location = requested_location($admin, $input['location_id'] ?? $admin['assigned_location'] ?? $admin['city'] ?? null);
+        $name = trim((string) ($input['name'] ?? ''));
+        $barangay = trim((string) ($input['barangay'] ?? ''));
+        $address = trim((string) ($input['address'] ?? ''));
+        $capacity = $parseUnsignedInteger($input['capacity'] ?? null);
+        $evacuees = $parseUnsignedInteger($input['evacuees'] ?? 0);
+        if ($name === '' || strlen($name) > 255) {
+            http_response_code(422);
+            echo json_encode(['error' => 'Enter a center name no longer than 255 characters.']);
+            exit;
+        }
+        if ($barangay === '' || $barangay === 'undefined' || $barangay === 'All barangays' || strlen($barangay) > 150) {
+            http_response_code(422);
+            echo json_encode(['error' => 'Choose a barangay before adding this evacuation center.']);
+            exit;
+        }
+        if (strlen($address) > 500) {
+            http_response_code(422);
+            echo json_encode(['error' => 'Address must be 500 characters or fewer.']);
+            exit;
+        }
+        if ($capacity === null || $capacity < 1 || $capacity > 1000000) {
+            http_response_code(422);
+            echo json_encode(['error' => 'Capacity must be a whole number between 1 and 1,000,000.']);
+            exit;
+        }
+        if ($evacuees === null || $evacuees > $capacity) {
+            http_response_code(422);
+            echo json_encode(['error' => 'Current evacuees must be a whole number from 0 up to the center capacity.']);
+            exit;
+        }
+        $statement = $pdo->prepare(
+            'INSERT INTO evacuation_centers (location_id, city, barangay, name, address, capacity, evacuees, created_by, created_by_admin_id)
+             VALUES (:location_id, :city, :barangay, :name, :address, :capacity, :evacuees, :created_by, :created_by_admin_id)'
+        );
+        $statement->execute([
+            'location_id' => $location['id'],
+            'city' => $location['city'],
+            'barangay' => $barangay,
+            'name' => $name,
+            'address' => $address,
+            'capacity' => $capacity,
+            'evacuees' => $evacuees,
+            'created_by' => trim((string) ($admin['org'] ?? '')) ?: $admin['name'],
+            'created_by_admin_id' => (int) $admin['id'],
+        ]);
+        http_response_code(201);
+        echo json_encode(['success' => true, 'id' => (int) $pdo->lastInsertId()]);
+        exit;
+    }
+
+    if ($action === 'evacuation-center-count') {
+        $admin = current_admin($pdo);
+        if (!$admin) {
+            http_response_code(401);
+            echo json_encode(['error' => 'Admin session required.']);
+            exit;
+        }
+        if (!in_array(strtolower((string) ($admin['acls']['products'] ?? '')), ['full', 'edit'], true)) {
+            http_response_code(403);
+            echo json_encode(['error' => 'You do not have permission to update evacuation counts.']);
+            exit;
+        }
+        $location = requested_location($admin, $input['location_id'] ?? $admin['assigned_location'] ?? $admin['city'] ?? null);
+        $centerId = $parseUnsignedInteger($input['id'] ?? null);
+        $evacuees = $parseUnsignedInteger($input['evacuees'] ?? null);
+        if ($centerId === null || $centerId < 1 || $evacuees === null) {
+            http_response_code(422);
+            echo json_encode(['error' => 'Provide a valid center ID and non-negative evacuee count.']);
+            exit;
+        }
+        $statement = $pdo->prepare(
+            'UPDATE evacuation_centers SET evacuees = :evacuees
+             WHERE id = :id AND location_id = :location_id AND evacuees <= capacity'
+        );
+        $statement->execute(['evacuees' => $evacuees, 'id' => $centerId, 'location_id' => $location['id']]);
+        if ($statement->rowCount() === 0) {
+            $check = $pdo->prepare('SELECT capacity FROM evacuation_centers WHERE id = :id AND location_id = :location_id');
+            $check->execute(['id' => $centerId, 'location_id' => $location['id']]);
+            $center = $check->fetch();
+            if (!$center) {
+                http_response_code(404);
+                echo json_encode(['error' => 'Evacuation center not found for this location.']);
+                exit;
+            }
+            if ($evacuees > (int) $center['capacity']) {
+                http_response_code(422);
+                echo json_encode(['error' => 'Evacuee count cannot exceed the center capacity.']);
+                exit;
+            }
+        }
+        echo json_encode(['success' => true]);
+        exit;
+    }
+
+    if ($action === 'evacuation-center-delete') {
+        $admin = current_admin($pdo);
+        if (!$admin) {
+            http_response_code(401);
+            echo json_encode(['error' => 'Admin session required.']);
+            exit;
+        }
+        if (!in_array(strtolower((string) ($admin['acls']['products'] ?? '')), ['full', 'edit'], true)) {
+            http_response_code(403);
+            echo json_encode(['error' => 'You do not have permission to delete evacuation centers.']);
+            exit;
+        }
+        $location = requested_location($admin, $input['location_id'] ?? $admin['assigned_location'] ?? $admin['city'] ?? null);
+        $centerId = $parseUnsignedInteger($input['id'] ?? null);
+        if ($centerId === null || $centerId < 1) {
+            http_response_code(422);
+            echo json_encode(['error' => 'Provide a valid evacuation center ID.']);
+            exit;
+        }
+        $statement = $pdo->prepare(
+            'DELETE FROM evacuation_centers
+             WHERE id = :id AND location_id = :location_id
+               AND (created_by_admin_id = :admin_id
+                    OR (created_by_admin_id IS NULL AND LOWER(TRIM(created_by)) = LOWER(TRIM(:admin_org))))'
+        );
+        $statement->execute([
+            'id' => $centerId,
+            'location_id' => $location['id'],
+            'admin_id' => (int) $admin['id'],
+            'admin_org' => trim((string) ($admin['org'] ?? '')) ?: $admin['name'],
+        ]);
+        if ($statement->rowCount() === 0) {
+            $check = $pdo->prepare('SELECT id FROM evacuation_centers WHERE id = :id AND location_id = :location_id');
+            $check->execute(['id' => $centerId, 'location_id' => $location['id']]);
+            if (!$check->fetch()) {
+                http_response_code(404);
+                echo json_encode(['error' => 'Evacuation center not found for this location.']);
+            } else {
+                http_response_code(403);
+                echo json_encode(['error' => 'You can only delete evacuation centers created by your account.']);
+            }
+            exit;
+        }
+        echo json_encode(['success' => true]);
         exit;
     }
 

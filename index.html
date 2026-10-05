@@ -303,6 +303,20 @@
         <select class="barangay-select" id="evac-barangay-select" onchange="renderEvacuees()"></select>
       </div>
       <div id="evac-scope-banner"></div>
+      <form class="panel evac-create-panel" id="evac-create-form" onsubmit="createEvacuationCenter(event)">
+        <div class="panel-head"><h3>Add an evacuation center</h3></div>
+        <div class="panel-body evac-create-fields">
+          <label class="field">Barangay
+            <select id="evac-center-barangay" required></select>
+          </label>
+          <label class="field">Center name<input id="evac-center-name" maxlength="255" required placeholder="e.g. Barangay covered court"></label>
+          <label class="field">Capacity<input id="evac-center-capacity" type="number" min="1" max="1000000" required placeholder="Maximum evacuees"></label>
+          <label class="field">Current evacuees<input id="evac-center-count" type="number" min="0" value="0" required></label>
+          <label class="field">Address <span class="muted">Optional</span><input id="evac-center-address" maxlength="500" placeholder="Street or landmark"></label>
+          <button class="btn btn-primary btn-sm" type="submit">Add center</button>
+          <div class="form-alert" id="evac-create-alert" role="status"></div>
+        </div>
+      </form>
       <div class="evac-grid" id="evac-grid"></div>
     </section>
 
