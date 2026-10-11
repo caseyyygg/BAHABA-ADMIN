@@ -28,7 +28,7 @@ if (in_array($origin, $allowedOrigins, true)) {
     header('Access-Control-Allow-Origin: http://localhost:8001');
 }
 header('Access-Control-Allow-Credentials: true');
-header('Access-Control-Allow-Headers: Content-Type, Authorization');
+header('Access-Control-Allow-Headers: Content-Type, Authorization, X-CSRF-Token');
 header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
@@ -50,6 +50,7 @@ if (!is_file($sharedApiDirectory . '/config.php')) {
 }
 $config = require $sharedApiDirectory . '/config.php';
 require_once $sharedApiDirectory . '/location_helpers.php';
+require_once $sharedApiDirectory . '/psgc.php';
 require_once __DIR__ . '/nlp-location.php';
 require_once __DIR__ . '/report-point.php';
 $nlpIngestToken = (string) ($config['nlp_ingest_token'] ?? '');
@@ -205,6 +206,24 @@ $method = $_SERVER['REQUEST_METHOD'];
 $path = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
 $input = json_decode(file_get_contents('php://input'), true) ?? [];
 $action = $_GET['action'] ?? ($input['action'] ?? null);
+require_once $sharedApiDirectory . '/password-recovery.php';
+bahaba_reset_schema($pdo);
+if (!empty($_SESSION['admin_id'])) {
+    $resetCheck=$pdo->prepare('SELECT password_reset_version FROM admin_users WHERE id=?');
+    $resetCheck->execute([$_SESSION['admin_id']]);
+    if ((int)$resetCheck->fetchColumn() !== (int)($_SESSION['admin_reset_version']??0)) unset($_SESSION['admin_id']);
+}
+require_once __DIR__ . '/report-management.php';
+require_once __DIR__ . '/team-deployments.php';
+require_once __DIR__ . '/collected-history.php';
+if ($action === 'forgot-password' && $method === 'POST') {
+    bahaba_password_request($pdo,$config,'admin',$input,($config['admin_api_url']??rtrim($config['admin_url']??'http://localhost:8001','/').'/api.php').'?action=reset-password',$sharedApiDirectory.'/vendor');
+}
+if ($action === 'reset-password') {
+    if ($method === 'GET') bahaba_password_form();
+    if ($method === 'POST') bahaba_password_complete($pdo,'admin',$input);
+    bahaba_reset_reply(['error'=>'Method not allowed.'],405);
+}
 $parseUnsignedInteger = static function (mixed $value): ?int {
     if (is_int($value)) {
         return $value >= 0 ? $value : null;
@@ -232,7 +251,8 @@ if ($method === 'GET' && $action === 'health') {
 }
 
 if ($method === 'GET' && $action === 'locations') {
-    echo json_encode(['locations' => bahaba_supported_locations()]);
+    $nationwide = array_map(fn($l) => array_merge($l, ['aliases'=>[], 'map_city'=>$l['city'], 'map_municipality'=>'']), bahaba_psgc_locations());
+    echo json_encode(['locations' => array_merge(bahaba_supported_locations(), $nationwide)]);
     exit;
 }
 
@@ -300,14 +320,10 @@ if ($method === 'GET' && $action === 'report-trends') {
     try {
         bahaba_archive_expired_reports($pdo);
         
-        $nlp = $pdo->prepare("SELECT DATE_FORMAT(received_at, '%Y-%m-01') AS report_month,
-            source, classification, severity, urgency, COUNT(*) AS total,
-            AVG(confidence_percent) AS average_confidence
-            FROM nlp_events WHERE location_id = :location_id
-            GROUP BY report_month, source, classification, severity, urgency ORDER BY report_month DESC");
-        $nlp->execute(['location_id' => $location['id']]);
+        require_once $sharedApiDirectory.'/collected-summary.php';
+        $nlpRows=bahaba_collected_rows($pdo,$location['id'], !is_platform_admin($admin) && !empty($admin['barangay']) && $admin['barangay']!=='All barangays' ? $admin['barangay'] : '');
         echo json_encode(['location' => $location, 'rows' => bahaba_report_trends($pdo, $location['id']),
-            'nlpRows' => $nlp->fetchAll(), 'retentionDays' => 30]);
+            'nlpRows' => $nlpRows, 'retentionDays' => 30]);
     } catch (Throwable $error) {
         error_log('Report trends failed: ' . $error->getMessage());
         http_response_code(503); echo json_encode(['error' => 'Flood history is temporarily unavailable.']);
@@ -390,7 +406,7 @@ if ($method === 'GET' && $action === 'all-reports') {
     $nlpEvents = $pdo->query(
         'SELECT id, source, source_post_id, post_text, post_url, location, city, barangay, classification,
                 severity, urgency, confidence_percent, detected_at, received_at
-         FROM nlp_events ORDER BY detected_at DESC, id DESC LIMIT 500'
+         FROM nlp_events WHERE received_at >= UTC_TIMESTAMP() - INTERVAL 24 HOUR ORDER BY detected_at DESC, id DESC'
     )->fetchAll();
 
     $nlpStats = $pdo->query(
@@ -950,7 +966,7 @@ if ($method === 'POST') {
         $source = trim((string) ($input['source'] ?? 'Unknown'));
         $source = $source !== '' ? substr($source, 0, 32) : 'Unknown';
         $sourcePostId = trim((string) ($input['post_id'] ?? ''));
-        $sourcePostId = $sourcePostId !== '' ? substr($sourcePostId, 0, 191) : null;
+        $sourcePostId = $sourcePostId !== '' ? substr($sourcePostId, 0, 191) : 'text:'.hash('sha256',strtolower(trim($postText)));
         $postUrl = trim((string) ($input['post_url'] ?? $input['original_post_url'] ?? $input['permalink_url'] ?? $input['source_url'] ?? $input['post_link'] ?? $input['url'] ?? ''));
         if ($postUrl !== '' && (strlen($postUrl) > 2048 || !filter_var($postUrl, FILTER_VALIDATE_URL) || !in_array(strtolower((string) parse_url($postUrl, PHP_URL_SCHEME)), ['http', 'https'], true))) {
             http_response_code(422);
@@ -983,7 +999,7 @@ if ($method === 'POST') {
                          VALUES (:source, :post_id, :post_text, :post_url, :location, :city, :location_id, :barangay, :classification, :severity, :urgency, :confidence, :detected_at)
              ON DUPLICATE KEY UPDATE post_text = VALUES(post_text), location = VALUES(location), city = VALUES(city),
                              post_url = VALUES(post_url), location_id = VALUES(location_id), barangay = VALUES(barangay), classification = VALUES(classification), severity = VALUES(severity),
-               urgency = VALUES(urgency), confidence_percent = VALUES(confidence_percent), detected_at = VALUES(detected_at)'
+               urgency = VALUES(urgency), confidence_percent = VALUES(confidence_percent), detected_at = LEAST(detected_at, VALUES(detected_at))'
         );
         $statement->execute([
             'source' => $source,
@@ -998,10 +1014,13 @@ if ($method === 'POST') {
             'severity' => ucfirst($severity),
             'urgency' => ucfirst($urgency),
             'confidence' => round($confidence, 2),
-            'detected_at' => $detectedAt->format('Y-m-d H:i:s'),
+            'detected_at' => $detectedAt->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d H:i:s'),
         ]);
+        $eventId=(int)$pdo->lastInsertId();
+        require_once __DIR__.'/nlp-threshold.php';
+        $threshold=$classification==='flood'?bahaba_nlp_threshold($pdo,$locationId,$barangay):['required_posts'=>20,'window_minutes'=>15,'eligible_posts'=>0,'report_id'=>null];
         http_response_code(201);
-        echo json_encode(['success' => true, 'id' => (int) $pdo->lastInsertId()]);
+        echo json_encode(['success'=>true,'id'=>$eventId,'pin_threshold'=>$threshold]);
         exit;
     }
 
@@ -1047,6 +1066,7 @@ if ($method === 'POST') {
         if (($user['status'] ?? 'active') === 'active') {
             session_regenerate_id(true);
             $_SESSION['admin_id'] = (int) $user['id'];
+            $_SESSION['admin_reset_version'] = (int)($user['password_reset_version']??0);
         }
 
         echo json_encode(['success' => true, 'user' => $payload]);

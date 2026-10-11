@@ -2,6 +2,8 @@
    Data model — Metro Manila Multi-City Registry
    ============================================================ */
 let activeCity = '';
+let activeAdminLocationId = '';
+let nationwideBarangays = {};
 let SUPPORTED_LOCATIONS = [];
 let EVACUATION_CENTERS = [];
 let evacuationCentersRequest = 0;
@@ -11,15 +13,16 @@ async function loadSupportedLocations() {
   if (!response.ok) throw new Error('Supported locations are unavailable.');
   const data = await response.json();
   SUPPORTED_LOCATIONS = Array.isArray(data.locations) ? data.locations : [];
+  try { const response=await fetch('./map-data/barangay-options.json?v=20261012'); if(response.ok) nationwideBarangays=(await response.json()).locations || {}; } catch(error) { console.warn('Barangay directory unavailable.'); }
   const options = '<option value="">Select a supported location</option>' + SUPPORTED_LOCATIONS
     .map((location) => `<option value="${location.id}">${location.name}</option>`).join('');
-  ['reg-location', 'new-user-location', 'command-location-select', 'reports-location-select', 'ann-location-select'].forEach((id) => {
+  ['reg-location', 'new-user-location', 'command-location-select', 'reports-location-select', 'ann-location-select', 'evac-location-select'].forEach((id) => {
     const select = document.getElementById(id);
     if (select) select.innerHTML = options;
   });
   if (!activeCity && SUPPORTED_LOCATIONS[0]) activeCity = SUPPORTED_LOCATIONS[0].city;
   const defaultLocationId = locationIdForCity(activeCity) || SUPPORTED_LOCATIONS[0]?.id || '';
-  ['command-location-select', 'reports-location-select', 'ann-location-select'].forEach((id) => {
+  ['command-location-select', 'reports-location-select', 'ann-location-select', 'evac-location-select'].forEach((id) => {
     const select = document.getElementById(id);
     if (select) select.value = defaultLocationId;
   });
@@ -352,10 +355,12 @@ const METRO_MANILA_BARANGAYS = {
   "Valenzuela City": ["Arkong Bato","Bagbaguin","Balangkas","Bignay","Bisig","Canumay East","Canumay West","Coloong","Dalandanan","Gen. T. de Leon","Isla","Karuhatan","Lawang Bato","Lingunan","Mabolo","Malanday","Malinta","Mapulang Lupa","Marulas","Maysan","Palasan","Parada","Pariancillo Villa","Paso de Blas","Pasolo","Poblacion","Pulo","Punturin","Rincon","Tagalag","Ugong","Viente Reales","Wawang Pulo"]
 };
 
+for(const [city,barangays] of Object.entries({"Malabon":["Acacia","Baritan","Bayan-bayanan","Catmon","Concepcion","Dampalit","Flores","Hulong Duhat","Ibaba","Longos","Maysilo","Muzon","Niugan","Panghulo","Potrero","San Agustin","Santolan","Tañong (Pob.)","Tinajeros","Tonsuya","Tugatog"],"Navotas":["Bagumbayan North","Bagumbayan South","Bangculasi","Daanghari","Navotas East","Navotas West","NBBS Dagat-dagatan","NBBS Kaunlaran","NBBS Proper","North Bay Blvd., North","San Jose (Pob.)","San Rafael Village","San Roque","Sipac-Almacen","Tangos North","Tangos South","Tanza 1","Tanza 2"],"Marikina":["Barangka","Calumpang","Concepcion Dos","Concepcion Uno","Fortune","Industrial Valley","Jesus de la Peña","Malanday","Marikina Heights (Concepcion)","Nangka","Parang","San Roque","Santa Elena (Pob.)","Santo Niño","Tañong","Tumana"],"Pampanga":["Acli ? Mexico","Agapito del Rosario ? Angeles City","Alasas ? City of San Fernando (Capital)","Alauli ? Masantol","Amsic ? Angeles City","Anao ? Mexico","Anon ? Floridablanca","Anunas ? Angeles City","Apalit ? Floridablanca","Arenas ? Arayat","Ascomo ? Guagua","Atlu-Bola ? Mabalacat City","Ayala ? Magalang","Babo Pangulo ? Porac","Babo Sacan ? Porac","Bagang ? Masantol","Bahay Pare ? Candaba","Balantacan ? Lubao","Balas ? Bacolor","Balas ? Mexico","Balibago ? Angeles City","Balibago ? Masantol","Baliti ? Arayat","Baliti ? City of San Fernando (Capital)","Balubad ? Porac","Balucuc ? Apalit","Bambang ? Candaba","Bancal ? Guagua","Bancal Pugad ? Lubao","Bancal Sinubli ? Lubao","Barangca ? Candaba","Barit ? Candaba","Baruya (San Rafael) ? Lubao","Basa Air Base ? Floridablanca","Batang 1st ? Sasmuan (Sexmoan)","Batang 2nd ? Sasmuan (Sexmoan)","Batasan ? Arayat","Batasan ? Macabebe","Bebe Anac ? Masantol","Bebe Matua ? Masantol","Becuran ? Santa Rita","Benedicto ? Floridablanca","Bical ? Mabalacat City","Bodega ? Floridablanca","Buas (Pob.) ? Candaba","Bucanan ? Magalang","Buenavista ? Mexico","Buensuceso ? Arayat","Bulac ? Minalin","Bulacus ? Masantol","Bulaon ? City of San Fernando (Capital)","Bundagul ? Mabalacat City","Cabalantian ? Bacolor","Cabambangan (Pob.) ? Bacolor","Cabangcalan ? Floridablanca","Cabetican ? Bacolor","Cacutud ? Mabalacat City","Caduang Tete ? Macabebe","Calangain ? Lubao","Calantas ? Floridablanca","Calantipe ? Apalit","Calibutbut ? Bacolor","Calulut ? City of San Fernando (Capital)","Calumpang ? Mabalacat City","Calzadang Bayu ? Porac","Camachiles ? Mabalacat City","Cambasi ? Masantol","Camias ? Magalang","Camias ? Porac","Camuning ? Mexico","Candating ? Arayat","Candelaria ? Macabebe","Cangatba ? Porac","Cansinala ? Apalit","Capalangan ? Apalit","Capaya ? Angeles City","Carmencita ? Floridablanca","Castuli ? Macabebe","Cawayan ? Mexico","Claro M. Recto ? Angeles City","Colgante ? Apalit","Concepcion ? Bacolor","Concepcion ? Lubao","Concepcion ? Mexico","Concepcion ? San Simon","Consuelo ? Floridablanca","Consuelo ? Macabebe","Cuayan ? Angeles City","Cuayang Bugtong ? Candaba","Culubasa ? Mexico","Cupang (Santa Lucia) ? Arayat","Cutcut ? Angeles City","Cutud ? Angeles City","Dalayap ? Candaba","Dalayap ? Macabebe","Dampe ? Floridablanca","Dapdap ? Mabalacat City","Dau ? Mabalacat City","Dawe ? Minalin","De La Paz ? Lubao","De La Paz ? San Simon","Del Carmen ? City of San Fernando (Capital)","Del Carmen ? Floridablanca","Del Carmen ? Lubao","Del Pilar ? City of San Fernando (Capital)","Del Rosario ? City of San Fernando (Capital)","Dela Paz Norte ? City of San Fernando (Capital)","Dela Paz Sur ? City of San Fernando (Capital)","Diaz ? Porac","Dila-dila ? Santa Rita","Divisoria ? Mexico","Dolores ? Bacolor","Dolores ? City of San Fernando (Capital)","Dolores ? Mabalacat City","Dolores ? Magalang","Dolores (Hacienda Dolores) ? Porac","Dolores (Piring) ? Mexico","Don Ignacio Dimson ? Lubao","Duat ? Bacolor","Dulong Ilog ? Candaba","Duquit ? Mabalacat City","Eden ? Mexico","Escaler ? Magalang","Fortuna ? Floridablanca","Gandus ? Mexico","Gatiawin ? Arayat","Guemasan ? Arayat","Gulap ? Candaba","Gutad ? Floridablanca","Inararo (Aetas) ? Porac","Jalung ? Porac","Jose Abad Santos (Siran) ? Guagua","Juliana ? City of San Fernando (Capital)","Kaledian (Camba) ? Arayat","La Paz ? Magalang","La Paz (Turu) ? Arayat","Lacmit ? Arayat","Lacquios ? Arayat","Lagundi ? Mexico","Lakandula ? Mabalacat City","Lambac ? Guagua","Lanang ? Candaba","Laput ? Mexico","Lara ? City of San Fernando (Capital)","Laug ? Mexico","Lourdes ? Candaba","Lourdes ? City of San Fernando (Capital)","Lourdes ? Minalin","Lourdes (Lauc Pau) ? Lubao","Lourdes North West ? Angeles City","Lourdes Sur ? Angeles City","Lourdes Sur East ? Angeles City","Mabical ? Floridablanca","Mabiga ? Mabalacat City","Mabuanbuan ? Sasmuan (Sexmoan)","Macabacle ? Bacolor","Macapagal Village ? Mabalacat City","Magliman ? Bacolor","Magliman ? City of San Fernando (Capital)","Magsaysay ? Guagua","Magumbali ? Candaba","Maimpis ? City of San Fernando (Capital)","Malabañas ? Angeles City","Malauli ? Masantol","Maligaya ? Floridablanca","Malino ? City of San Fernando (Capital)","Maliwalu ? Bacolor","Malpitic ? City of San Fernando (Capital)","Malusac ? Sasmuan (Sexmoan)","Mamatitang ? Mabalacat City","Mancatian ? Porac","Mandasig ? Candaba","Mandili ? Candaba","Mangalit ? Mabalacat City","Mangga ? Candaba","Mangga-Cacutud ? Arayat","Maniango ? Minalin","Manibaug Libutad ? Porac","Manibaug Paralaya ? Porac","Manibaug Pasig ? Porac","Manuali ? Porac","Mapalad ? Arayat","Mapaniqui ? Candaba","Maquiapo ? Guagua","Marcos Village ? Mabalacat City","Margot ? Angeles City","Masamat ? Mexico","Masangsang ? Mexico","Mataguiti ? Macabebe","Matamo (Santa Lucia) ? Arayat","Mawacat ? Floridablanca","Mawaque ? Mabalacat City","Mesalipit ? Bacolor","Mining ? Angeles City","Mitla Proper ? Porac","Moras de la Paz ? Sto. Tomas","Nabuclod ? Floridablanca","Natividad ? Guagua","Navaling ? Magalang","Nigui ? Masantol","Ninoy Aquino (Marisol) ? Angeles City","Nueva Victoria ? Mexico","Pabanlag ? Floridablanca","Paguiruan ? Floridablanca","Palat ? Porac","Paligui ? Apalit","Paligui ? Candaba","Palimpe ? Masantol","Palmayo ? Floridablanca","Pampang ? Angeles City","Pandacaqui ? Mexico","Pandaguirig ? Floridablanca","Pandan ? Angeles City","Pandaras ? City of San Fernando (Capital)","Pangatlan ? Mexico","Pangclara ? Candaba","Panipuan ? City of San Fernando (Capital)","Panipuan ? Mexico","Panlinlang ? Arayat","Pansinao ? Candaba","Paralaya ? Arayat","Paralaya (Pob.) ? Candaba","Paralayunan ? Mabalacat City","Parian (Pob.) ? Mexico","Parulog ? Bacolor","Pasig ? Candaba","Pescadores (Pob.) ? Candaba","Pias ? Porac","Pio ? Porac","Planas ? Porac","Plaza Burgos (Pob.) ? Guagua","Plazang Luma ? Arayat","Poblacion ? Arayat","Poblacion ? Floridablanca","Poblacion ? Mabalacat City","Poblacion ? Porac","Poblacion ? Sto. Tomas","Potrero ? Bacolor","Prado Siongco ? Lubao","Pulong Gubat ? Candaba","Pulong Palazan ? Candaba","Pulung Bulu ? City of San Fernando (Capital)","Pulung Cacutud ? Angeles City","Pulung Maragul ? Angeles City","Pulung Santol ? Porac","Pulungbulu ? Angeles City","Pulungmasle ? Guagua","Puti ? Masantol","Quebiauan ? City of San Fernando (Capital)","Remedios ? Lubao","Rizal ? Guagua","Sabanilla ? Mexico","Sagrada (Tibagin) ? Masantol","Saguin ? City of San Fernando (Capital)","Salapungan ? Angeles City","Salapungan ? Candaba","Salu ? Porac","Sampaloc ? Apalit","San Agustin ? City of San Fernando (Capital)","San Agustin ? Guagua","San Agustin ? Lubao","San Agustin ? Magalang","San Agustin ? San Luis","San Agustin ? San Simon","San Agustin ? Santa Ana","San Agustin ? Santa Rita","San Agustin (Caingin) ? Masantol","San Agustin (Pob.) ? Candaba","San Agustin Norte ? Arayat","San Agustin Sur ? Arayat","San Antonio ? Arayat","San Antonio ? Bacolor","San Antonio ? Floridablanca","San Antonio ? Guagua","San Antonio ? Lubao","San Antonio ? Magalang","San Antonio ? Mexico","San Antonio ? Sasmuan (Sexmoan)","San Bartolome ? Santa Ana","San Bartolome ? Sto. Tomas","San Basilio ? Santa Rita","San Carlos ? Mexico","San Carlos ? San Luis","San Esteban ? Macabebe","San Felipe ? City of San Fernando (Capital)","San Francisco ? Lubao","San Francisco ? Mabalacat City","San Francisco ? Macabebe","San Francisco 1st ? Minalin","San Francisco 2nd ? Minalin","San Franciso ? Magalang","San Gabriel (Pob.) ? Macabebe","San Ildefonso ? Magalang","San Isidro ? Bacolor","San Isidro ? City of San Fernando (Capital)","San Isidro ? Floridablanca","San Isidro ? Guagua","San Isidro ? Lubao","San Isidro ? Macabebe","San Isidro ? Magalang","San Isidro ? Minalin","San Isidro ? San Luis","San Isidro ? San Simon","San Isidro ? Santa Ana","San Isidro ? Santa Rita","San Isidro Anac ? Masantol","San Isidro Matua (Pob.) ? Masantol","San Joaquin ? Mabalacat City","San Joaquin (Pob.) ? Santa Ana","San Jose ? Angeles City","San Jose ? City of San Fernando (Capital)","San Jose ? Floridablanca","San Jose ? Guagua","San Jose ? Macabebe","San Jose ? Magalang","San Jose ? San Luis","San Jose ? San Simon","San Jose ? Santa Ana","San Jose (Pob.) ? Santa Rita","San Jose Apunan ? Lubao","San Jose Gumi ? Lubao","San Jose Malino ? Mexico","San Jose Matulid ? Mexico","San Jose Mesulo ? Arayat","San Jose Mitla ? Porac","San Juan ? City of San Fernando (Capital)","San Juan ? Guagua","San Juan ? Macabebe","San Juan ? Mexico","San Juan ? San Luis","San Juan ? Santa Ana","San Juan ? Santa Rita","San Juan (Pob.) ? Apalit","San Juan (Pob.) ? Lubao","San Juan (Pob.) ? San Simon","San Juan Bano ? Arayat","San Juan Bautista ? Guagua","San Juan Nepomuceno ? Guagua","San Lorenzo ? Mexico","San Mateo ? Arayat","San Matias ? Guagua","San Matias ? Lubao","San Matias ? Santa Rita","San Matias ? Sto. Tomas","San Miguel ? Lubao","San Miguel ? Magalang","San Miguel ? Mexico","San Miguel ? San Simon","San Miguel (Betis) ? Guagua","San Nicolas ? Angeles City","San Nicolas ? Arayat","San Nicolas ? City of San Fernando (Capital)","San Nicolas ? Floridablanca","San Nicolas ? Mexico","San Nicolas ? San Luis","San Nicolas ? San Simon","San Nicolas ? Santa Ana","San Nicolas (Pob.) ? Masantol","San Nicolas (Pob.) ? Minalin","San Nicolas 1st ? Guagua","San Nicolas 1st ? Sasmuan (Sexmoan)","San Nicolas 1st (Pob.) ? Lubao","San Nicolas 1st (Pob.) ? Magalang","San Nicolas 2nd ? Guagua","San Nicolas 2nd ? Lubao","San Nicolas 2nd ? Magalang","San Nicolas 2nd ? Sasmuan (Sexmoan)","San Pablo ? Guagua","San Pablo ? Mexico","San Pablo ? Santa Ana","San Pablo (Pob.) ? Magalang","San Pablo 1st ? Lubao","San Pablo 2nd ? Lubao","San Pablo Libutad ? San Simon","San Pablo Proper ? San Simon","San Patricio ? Mexico","San Pedro ? City of San Fernando (Capital)","San Pedro ? Floridablanca","San Pedro ? Guagua","San Pedro ? Masantol","San Pedro ? Minalin","San Pedro ? San Simon","San Pedro ? Santa Ana","San Pedro ? Sasmuan (Sexmoan)","San Pedro I ? Magalang","San Pedro II ? Magalang","San Pedro Palcarangan ? Lubao","San Pedro Saug ? Lubao","San Rafael ? Macabebe","San Rafael ? Mexico","San Rafael (Duck Island) ? Guagua","San Ramon ? Floridablanca","San Roque ? Floridablanca","San Roque ? Guagua","San Roque ? Macabebe","San Roque ? Magalang","San Roque ? Mexico","San Roque ? San Luis","San Roque ? Santa Ana","San Roque Arbol ? Lubao","San Roque Bitas ? Arayat","San Roque Dau ? Lubao","San Sebastian ? San Luis","San Vicente ? Apalit","San Vicente ? Bacolor","San Vicente ? Lubao","San Vicente ? Macabebe","San Vicente ? Magalang","San Vicente ? Mexico","San Vicente ? Santa Rita","San Vicente ? Sto. Tomas","San Vicente (Ibus) ? Guagua","Santa Barbara ? Bacolor","Santa Barbara ? Lubao","Santa Catalina ? Lubao","Santa Catalina ? San Luis","Santa Cruz ? Lubao","Santa Cruz ? Mexico","Santa Cruz ? San Simon","Santa Cruz (Pob.) ? Magalang","Santa Cruz Pambilog ? San Luis","Santa Cruz Poblacion ? San Luis","Santa Filomena (Pob.) ? Guagua","Santa Ines ? Bacolor","Santa Ines ? Guagua","Santa Ines ? Mabalacat City","Santa Lucia ? City of San Fernando (Capital)","Santa Lucia ? Magalang","Santa Lucia ? San Luis","Santa Lucia ? Santa Ana","Santa Lucia (Pob.) ? Lubao","Santa Maria ? Lubao","Santa Maria ? Mabalacat City","Santa Maria ? Magalang","Santa Maria ? Mexico","Santa Maria ? Santa Ana","Santa Monica ? Lubao","Santa Monica ? San Luis","Santa Monica ? San Simon","Santa Monica ? Santa Rita","Santa Monica ? Sasmuan (Sexmoan)","Santa Rita ? Lubao","Santa Rita ? San Luis","Santa Teresa 1st ? Lubao","Santa Teresa 2nd ? Lubao","Santa Teresita ? City of San Fernando (Capital)","Santa Ursula ? Guagua","Santiago ? Lubao","Santiago ? Santa Ana","Santo Cristo ? Guagua","Santo Cristo ? Lubao","Santo Domingo ? Lubao","Santo Domingo ? Mexico","Santo Niño ? City of San Fernando (Capital)","Santo Niño ? Magalang","Santo Niño ? San Luis","Santo Niño ? San Simon","Santo Niño (Pob.) ? Guagua","Santo Niño (Prado Aruba) ? Lubao","Santo Niño Tabuan ? Arayat","Santo Rosario ? Candaba","Santo Rosario ? Mabalacat City","Santo Rosario ? Magalang","Santo Rosario ? Mexico","Santo Rosario ? San Luis","Santo Rosario ? Santa Ana","Santo Rosario (Pau) ? Sto. Tomas","Santo Rosario (Pob.) ? City of San Fernando (Capital)","Santo Tomas ? San Luis","Santo Tomas ? Sasmuan (Sexmoan)","Santo Tomas (Pob.) ? Lubao","Sapa (Santo Niño) ? Sto. Tomas","Sapalibutad ? Angeles City","Sapang Balen ? Mabalacat City","Sapang Biabas ? Mabalacat City","Sapang Kawayan ? Masantol","Sapang Maisac ? Mexico","Sapang Uwak (Aetas) ? Porac","Sapangbato ? Angeles City","Saplad ? Minalin","Saplad David ? Macabebe","Sebitanan ? Sasmuan (Sexmoan)","Sepung Bulaon ? Porac","Sindalan ? City of San Fernando (Capital)","Sinura ? Porac","Solib ? Floridablanca","Sta. Catalina ? Minalin","Sta. Cruz ? Masantol","Sta. Cruz ? Porac","Sta. Cruz (Pob.) ? Macabebe","Sta. Lucia (Pob.) ? Sasmuan (Sexmoan)","Sta. Lucia Anac (Pob.) ? Masantol","Sta. Lucia Matua ? Masantol","Sta. Lucia Paguiba ? Masantol","Sta. Lucia Wakas ? Masantol","Sta. Lutgarda ? Macabebe","Sta. Maria ? Macabebe","Sta. Maria ? Minalin","Sta. Monica ? Floridablanca","Sta. Monica (Caingin) ? Masantol","Sta. Rita ? Minalin","Sta. Rita (Pob.) ? Macabebe","Sta. Teresita ? Angeles City","Sta. Trinidad ? Angeles City","Sto. Cristo ? Angeles City","Sto. Domingo ? Angeles City","Sto. Domingo ? Minalin","Sto. Niño ? Macabebe","Sto. Niño ? Masantol","Sto. Rosario (Malabo) ? Floridablanca","Sto. Rosario (Pob.) ? Angeles City","Sto. Rosario (Pob.) ? Macabebe","Sto. Rosario (Pob.) ? Minalin","Sua ? Masantol","Sucad ? Apalit","Suclaban ? Mexico","Suclayin ? Arayat","Sulipan ? Apalit","Tabun ? Angeles City","Tabun ? Mabalacat City","Tabuyuc (Santo Rosario) ? Apalit","Tacasan ? Macabebe","Tagulod ? Candaba","Talang ? Candaba","Talba ? Bacolor","Tangle (Tanglay) ? Mexico","Telabastagan ? City of San Fernando (Capital)","Telacsan ? Macabebe","Telapayong ? Arayat","Tenejero ? Candaba","Tinajero ? Bacolor","Turu ? Magalang","Valdez ? Floridablanca","Villa Maria (Aetas) ? Porac","Virgen delos Remedios ? Angeles City","Vizal San Pablo ? Candaba","Vizal Santo Cristo ? Candaba","Vizal Santo Niño ? Candaba"],"Bulacan":["Abangan Norte ? Marilao","Abangan Sur ? Marilao","Abulalas ? Hagonoy","Agnaya ? Plaridel","Akle ? San Ildefonso","Alagao ? San Ildefonso","Anilao ? City of Malolos (Capital)","Antipona ? Bocaue","Anyatam ? San Ildefonso","Assumption ? City of San Jose del Monte","Atlag ? City of Malolos (Capital)","Babatnin ? City of Malolos (Capital)","Bagbaguin ? City of Meycauayan","Bagbaguin ? Pandi","Bagbaguin ? Santa Maria","Bagna ? City of Malolos (Capital)","Bagong Barrio ? Pandi","Bagong Barrio ? San Ildefonso","Bagong Bayan ? City of Malolos (Capital)","Bagong Buhay I ? City of San Jose del Monte","Bagong Buhay II ? City of San Jose del Monte","Bagong Buhay III ? City of San Jose del Monte","Bagong Nayon ? City of Baliwag","Bagong Pag-asa ? San Miguel","Bagong Silang ? Plaridel","Bagong Silang ? San Miguel","Bagumbayan ? Bocaue","Bagumbayan ? Bulacan","Bahay Pare ? City of Meycauayan","Baka-bakahan ? Pandi","Balaong ? San Miguel","Balasing ? Santa Maria","Balatong A ? Pulilan","Balatong B ? Pulilan","Balayong ? City of Malolos (Capital)","Balite ? Calumpit","Balite ? City of Malolos (Capital)","Balite ? San Miguel","Balubad ? Bulacan","Balungao ? Calumpit","Bambang ? Bocaue","Bambang ? Bulacan","Banaban ? Angat","Banca-banca ? San Rafael","Bancal ? City of Meycauayan","Banga ? City of Meycauayan","Banga I ? Plaridel","Banga II ? Plaridel","Bangkal ? City of Malolos (Capital)","Bangkal ? Norzagaray","Bantog ? San Miguel","Baraka ? Norzagaray","Barangca ? City of Baliwag","Bardias ? San Miguel","Barihan ? City of Malolos (Capital)","Baritan ? San Miguel","Basuit ? San Ildefonso","Batasan Bata ? San Miguel","Batasan Matanda ? San Miguel","Batia ? Bocaue","Bayabas ? Doña Remedios Trinidad","Baybay ? Angat","Bayugo ? City of Meycauayan","Biak-na-Bato ? San Miguel","Biclat ? San Miguel","Bigte ? Norzagaray","Binagbag ? Angat","Binakod ? Paombong","Biñang 1st ? Bocaue","Biñang 2nd ? Bocaue","Bintog ? Plaridel","Binuangan ? Obando","Bitungol ? Norzagaray","BMA-Balagtas ? San Rafael","Bolacan ? Bocaue","Bonga Mayor ? Bustos","Bonga Menor ? Bustos","Borol 1st ? Balagtas (Bigaa)","Borol 2nd ? Balagtas (Bigaa)","Bubulong Malaki ? San Ildefonso","Bubulong Munti ? San Ildefonso","Buenavista ? Santa Maria","Buga ? San Miguel","Buguion ? Calumpit","Buhol na Mangga ? San Ildefonso","Buisan ? Bustos","Bulac ? Santa Maria","Bulihan ? City of Malolos (Capital)","Bulihan ? Plaridel","Buliran ? San Miguel","Bulualto ? San Miguel","Bulusan ? Calumpit","Bulusukan ? San Ildefonso","Bundukan ? Bocaue","Bungahan ? City of Malolos (Capital)","Bunlo ? Bocaue","Bunsuran I ? Pandi","Bunsuran II ? Pandi","Bunsuran III ? Pandi","Cacarong Bata ? Pandi","Cacarong Matanda ? Pandi","Caingin ? Bocaue","Caingin ? City of Malolos (Capital)","Caingin ? City of Meycauayan","Caingin ? San Rafael","Calantipay ? City of Baliwag","Calasag ? San Ildefonso","Calawitan ? San Ildefonso","Calero ? City of Malolos (Capital)","Caliligawan ? City of Malolos (Capital)","Calizon ? Calumpit","Calumpang ? Calumpit","Calumpang ? San Miguel","Calvario ? City of Meycauayan","Camachile ? Doña Remedios Trinidad","Camachilihan ? Bustos","Camachin ? Doña Remedios Trinidad","Camalig ? City of Meycauayan","Camangyanan ? Santa Maria","Cambaog ? Bustos","Cambio ? San Miguel","Camias ? San Miguel","Canalate ? City of Malolos (Capital)","Caniogan ? Calumpit","Caniogan ? City of Malolos (Capital)","Capihan ? San Rafael","Carillo ? Hagonoy","Casalat ? San Ildefonso","Catacte ? Bustos","Catanghalan ? Obando","Catmon ? City of Malolos (Capital)","Catmon ? Santa Maria","Catulinan ? City of Baliwag","Cay Pombo ? Santa Maria","Caysio ? Santa Maria","Citrus ? City of San Jose del Monte","Ciudad Real ? City of San Jose del Monte","Cofradia ? City of Malolos (Capital)","Concepcion ? City of Baliwag","Coral na Bato ? San Rafael","Corazon ? Calumpit","Cruz na Daan ? San Rafael","Culianin ? Plaridel","Cupang ? Pandi","Cutcot ? Pulilan","Cutcut ? Guiguinto","Dagat-dagatan ? San Rafael","Dakila ? City of Malolos (Capital)","Dalig ? Balagtas (Bigaa)","Dampol ? Plaridel","Dampol I ? Pulilan","Dampol II-A ? Pulilan","Dampol II-B ? Pulilan","Daungan ? Guiguinto","Diliman I ? San Rafael","Diliman II ? San Rafael","Donacion ? Angat","Duhat ? Bocaue","Dulong Bayan ? City of San Jose del Monte","Dulong Malabon ? Pulilan","Encanto ? Angat","Fatima I ? City of San Jose del Monte","Fatima II ? City of San Jose del Monte","Fatima III ? City of San Jose del Monte","Fatima IV ? City of San Jose del Monte","Fatima V ? City of San Jose del Monte","Frances ? Calumpit","Francisco Homes-Guijo ? City of San Jose del Monte","Francisco Homes-Mulawin ? City of San Jose del Monte","Francisco Homes-Narra ? City of San Jose del Monte","Francisco Homes-Yakal ? City of San Jose del Monte","Friendship Village Resources (FVR) ? Norzagaray","Gabihan ? San Ildefonso","Garlang ? San Ildefonso","Gatbuca ? Calumpit","Gaya-gaya ? City of San Jose del Monte","Graceville ? City of San Jose del Monte","Gugo ? Calumpit","Guinhawa ? City of Malolos (Capital)","Gumaoc Central ? City of San Jose del Monte","Gumaoc East ? City of San Jose del Monte","Gumaoc West ? City of San Jose del Monte","Guyong ? Santa Maria","Hinukay ? City of Baliwag","Hulo ? City of Meycauayan","Hulo ? Obando","Iba ? City of Meycauayan","Iba ? Hagonoy","Iba Este ? Calumpit","Iba O'Este ? Calumpit","Iba-Ibayo ? Hagonoy","Ibayo ? Marilao","Igulot ? Bocaue","Ilang-Ilang ? Guiguinto","Ilog-Bulo ? San Miguel","Inaon ? Pulilan","Kabayunan ? Doña Remedios Trinidad","Kalawakan ? Doña Remedios Trinidad","Kapitangan ? Paombong","Kaybanban ? City of San Jose del Monte","Kaypian ? City of San Jose del Monte","King Kabayo ? San Miguel","Labne ? San Miguel","Lagundi ? Plaridel","Lalakhan ? Santa Maria","Lalangan ? Plaridel","Lambakin ? Marilao","Lambakin ? San Miguel","Langka ? City of Meycauayan","Laog ? Angat","Lapnit ? San Ildefonso","Lawa ? City of Meycauayan","Lawa ? Obando","Lawang Pari ? City of San Jose del Monte","Liang ? City of Malolos (Capital)","Lias ? Marilao","Libis ? San Rafael","Libtong ? City of Meycauayan","Liciada ? Bustos","Lico ? San Rafael","Ligas ? City of Malolos (Capital)","Liputan ? City of Meycauayan","Lolomboy ? Bocaue","Loma de Gato ? Marilao","Longos ? Balagtas (Bigaa)","Longos ? Calumpit","Longos ? City of Malolos (Capital)","Longos ? City of Meycauayan","Longos ? Pulilan","Look 1st ? City of Malolos (Capital)","Look 2nd ? City of Malolos (Capital)","Lugam ? City of Malolos (Capital)","Lumang Bayan ? Plaridel","Lumbac ? Pulilan","Maasim ? San Ildefonso","Maasim ? San Rafael","Mabalas-balas ? San Rafael","Mabolo ? City of Malolos (Capital)","Mag-asawang Sapa ? Santa Maria","Magmarale ? San Miguel","Maguinao ? San Rafael","Mahabang Parang ? Santa Maria","Maharlika ? City of San Jose del Monte","Makapilapil ? San Ildefonso","Makinabang ? City of Baliwag","Malamig ? Bustos","Malawak ? Bustos","Malhacan ? City of Meycauayan","Malibay ? San Miguel","Malibong Bata ? Pandi","Malibong Matanda ? Pandi","Maligaya ? San Miguel","Malipampang ? San Ildefonso","Malis ? Guiguinto","Malumot ? Paombong","Mambog ? City of Malolos (Capital)","Manatal ? Pandi","Mandile ? San Miguel","Manggahan ? Santa Maria","Mapulang Lupa ? Pandi","Maronquillo ? San Rafael","Marungko ? Angat","Masagana ? Pandi","Masalipit ? San Miguel","Masile ? City of Malolos (Capital)","Masukol ? Paombong","Masuso ? Pandi","Mataas na Parang ? San Ildefonso","Matangtubig ? City of Baliwag","Matictic ? Norzagaray","Matimbo ? City of Malolos (Capital)","Matimbubong ? San Ildefonso","Matungao ? Bulacan","Maysantol ? Bulacan","Mercado ? Hagonoy","Meysulao ? Calumpit","Meyto ? Calumpit","Minuyan ? Norzagaray","Minuyan I ? City of San Jose del Monte","Minuyan II ? City of San Jose del Monte","Minuyan III ? City of San Jose del Monte","Minuyan IV ? City of San Jose del Monte","Minuyan Proper ? City of San Jose del Monte","Minuyan V ? City of San Jose del Monte","Mojon ? City of Malolos (Capital)","Muzon East ? City of San Jose del Monte","Muzon Proper ? City of San Jose del Monte","Muzon South ? City of San Jose del Monte","Muzon West ? City of San Jose del Monte","Nabaong Garlang ? San Ildefonso","Nagbalon ? Marilao","Namayan ? City of Malolos (Capital)","Niugan ? Angat","Niugan ? City of Malolos (Capital)","Pacalag ? San Miguel","Paco ? Obando","Paco ? San Rafael","Pag-asa (Pob.) ? Obando","Pagala ? City of Baliwag","Paitan ? City of Baliwag","Pajo ? City of Meycauayan","Palapala ? San Ildefonso","Palapat ? Hagonoy","Palimbang ? Calumpit","Paliwas ? Obando","Paliwasan ? San Miguel","Paltao ? Pulilan","Paltok ? Angat","Pamarawan ? City of Malolos (Capital)","Panasahan ? City of Malolos (Capital)","Pandayan ? City of Meycauayan","Panducot ? Calumpit","Panghulo ? Obando","Panginay ? Balagtas (Bigaa)","Panginay ? Guiguinto","Pansumaloc ? San Rafael","Pantoc ? City of Meycauayan","Pantubig ? San Rafael","Parada ? Santa Maria","Paradise III ? City of San Jose del Monte","Partida ? Norzagaray","Partida ? San Miguel","Parulan ? Plaridel","Pasong Bangkal ? San Ildefonso","Pasong Bangkal ? San Rafael","Pasong Callos ? San Rafael","Pasong Intsik ? San Rafael","Patubig ? Marilao","Penabatan ? Pulilan","Perez ? Bulacan","Perez ? City of Meycauayan","Piel ? City of Baliwag","Pinacpinacan ? San Rafael","Pinagbakahan ? City of Malolos (Capital)","Pinagbarilan ? City of Baliwag","Pinagkuartelan ? Pandi","Pinagtulayan ? Norzagaray","Pinalagdan ? Paombong","Pinambaran ? San Miguel","Pinaod ? San Ildefonso","Pio Cruzcosa ? Calumpit","Pitpitan ? Bulacan","Poblacion ? Bocaue","Poblacion ? Bustos","Poblacion ? Calumpit","Poblacion ? City of Baliwag","Poblacion ? City of Meycauayan","Poblacion ? City of San Jose del Monte","Poblacion ? Guiguinto","Poblacion ? Norzagaray","Poblacion ? Pandi","Poblacion ? Paombong","Poblacion ? Plaridel","Poblacion ? Pulilan","Poblacion ? San Ildefonso","Poblacion ? San Miguel","Poblacion ? San Rafael","Poblacion ? Santa Maria","Poblacion I ? City of San Jose del Monte","Poblacion I ? Marilao","Poblacion II ? Marilao","Prenza I ? Marilao","Prenza II ? Marilao","Pritil ? Guiguinto","Pugad ? Hagonoy","Pulo ? San Rafael","Pulong Bayabas ? San Miguel","Pulong Bayabas ? San Rafael","Pulong Buhangin ? Santa Maria","Pulong Duhat ? San Miguel","Pulong Gubat ? Balagtas (Bigaa)","Pulong Gubat ? Guiguinto","Pulong Sampalok ? Doña Remedios Trinidad","Pulong Tamo ? San Ildefonso","Pulong Yantok ? Angat","Pungo ? Calumpit","Real de Cacarong ? Pandi","Rueda ? Plaridel","Sabang ? City of Baliwag","Sacdalan ? San Miguel","Sagrada Familia ? Hagonoy","Saint Francis (Gasak) ? City of Meycauayan","Salacot ? San Miguel","Salambao ? Obando","Salangan ? San Miguel","Salapungan ? San Rafael","Saluysoy ? City of Meycauayan","Sampaloc ? San Rafael","San Agustin ? City of Malolos (Capital)","San Agustin ? Hagonoy","San Agustin ? San Miguel","San Agustin ? San Rafael","San Francisco ? Bulacan","San Gabriel ? City of Malolos (Capital)","San Gabriel ? Santa Maria","San Isidro ? City of San Jose del Monte","San Isidro ? Hagonoy","San Isidro I ? Paombong","San Isidro II ? Paombong","San Jose ? Calumpit","San Jose ? City of Baliwag","San Jose ? Hagonoy","San Jose ? Paombong","San Jose ? Plaridel","San Jose ? San Miguel","San Jose (Pob.) ? Bulacan","San Jose Patag ? Santa Maria","San Juan ? Balagtas (Bigaa)","San Juan ? City of Malolos (Capital)","San Juan ? Hagonoy","San Juan ? San Ildefonso","San Juan ? San Miguel","San Lorenzo ? Norzagaray","San Manuel ? City of San Jose del Monte","San Marcos ? Calumpit","San Martin I ? City of San Jose del Monte","San Martin II ? City of San Jose del Monte","San Martin III ? City of San Jose del Monte","San Martin IV ? City of San Jose del Monte","San Mateo ? Norzagaray","San Miguel ? Calumpit","San Miguel ? Hagonoy","San Nicolas ? Bulacan","San Nicolas ? Hagonoy","San Pablo ? City of Malolos (Capital)","San Pablo ? Hagonoy","San Pascual ? Hagonoy","San Pascual ? Obando","San Pedro ? Bustos","San Pedro ? City of San Jose del Monte","San Pedro ? Hagonoy","San Rafael I ? City of San Jose del Monte","San Rafael II ? City of San Jose del Monte","San Rafael III ? City of San Jose del Monte","San Rafael IV ? City of San Jose del Monte","San Rafael V ? City of San Jose del Monte","San Roque ? City of Baliwag","San Roque ? City of San Jose del Monte","San Roque ? Hagonoy","San Roque ? Pandi","San Roque ? Paombong","San Roque ? San Rafael","San Roque (Pob.) ? Angat","San Sebastian ? Hagonoy","San Vicente ? Paombong","San Vicente ? San Miguel","San Vicente ? Santa Maria","San Vicente (Pob.) ? City of Malolos (Capital)","Santa Ana ? Bulacan","Santa Barbara ? City of Baliwag","Santa Catalina Bata ? San Ildefonso","Santa Catalina Matanda ? San Ildefonso","Santa Cruz ? Guiguinto","Santa Cruz ? Hagonoy","Santa Cruz ? Paombong","Santa Cruz (Pob.) ? Angat","Santa Cruz II ? City of San Jose del Monte","Santa Cruz III ? City of San Jose del Monte","Santa Cruz IV ? City of San Jose del Monte","Santa Cruz V ? City of San Jose del Monte","Santa Elena ? Hagonoy","Santa Ines ? Bulacan","Santa Ines ? Plaridel","Santa Ines ? San Miguel","Santa Lucia ? Angat","Santa Lucia ? Calumpit","Santa Lucia ? San Miguel","Santa Monica ? Hagonoy","Santa Peregrina ? Pulilan","Santa Rita ? Guiguinto","Santa Rita Bata ? San Miguel","Santa Rita Matanda ? San Miguel","Santa Rosa I ? Marilao","Santa Rosa II ? Marilao","Santiago ? City of Malolos (Capital)","Santisima Trinidad ? City of Malolos (Capital)","Santo Cristo ? City of Baliwag","Santo Cristo ? City of Malolos (Capital)","Santo Cristo ? City of San Jose del Monte","Santo Cristo ? Pulilan","Santo Cristo (Pob.) ? Angat","Santo Niño ? Calumpit","Santo Niño ? City of Baliwag","Santo Niño ? Pandi","Santo Niño ? Paombong","Santo Niño ? Plaridel","Santo Niño (Pob.) ? City of Malolos (Capital)","Santo Niño (Pob.) ? Hagonoy","Santo Niño II ? City of San Jose del Monte","Santo Rosario ? Hagonoy","Santo Rosario ? Paombong","Santo Rosario (Pob.) ? City of Malolos (Capital)","Santol ? Balagtas (Bigaa)","Santor ? City of Malolos (Capital)","Saog ? Marilao","Sapang ? San Miguel","Sapang Bayan ? Calumpit","Sapang Bulak ? Doña Remedios Trinidad","Sapang Dayap ? San Ildefonso","Sapang Pahalang ? San Rafael","Sapang Palay ? City of San Jose del Monte","Sapang Putik ? San Ildefonso","Sapang Putol ? San Ildefonso","Sergio Bayan ? Calumpit","Sibul ? San Miguel","Silangan ? Santa Maria","Siling Bata ? Pandi","Siling Matanda ? Pandi","Sipat ? Plaridel","St. Martin de Porres ? City of San Jose del Monte","Sta. Clara ? Santa Maria","Sta. Cruz ? Santa Maria","Sta. Cruz I ? City of San Jose del Monte","Sto. Niño I ? City of San Jose del Monte","Subic ? City of Baliwag","Sucol ? Calumpit","Sulivan ? City of Baliwag","Sulucan ? Angat","Sulucan ? Bocaue","Sumandig ? San Ildefonso","Sumapang Bata ? City of Malolos (Capital)","Sumapang Matanda ? City of Malolos (Capital)","Taal ? Bocaue","Taal ? City of Malolos (Capital)","Taal ? Pulilan","Tabang ? Guiguinto","Tabang ? Plaridel","Tabe ? Guiguinto","Tabing Bakod ? Santa Maria","Tabing Ilog ? Marilao","Taboc ? Angat","Tabon ? Pulilan","Talacsan ? San Rafael","Talampas ? Bustos","Talbak ? Doña Remedios Trinidad","Taliptip ? Bulacan","Tambobong ? Bocaue","Tambubong ? San Rafael","Tampok ? Hagonoy","Tanawan ? Bustos","Tangos ? City of Baliwag","Tarcan ? City of Baliwag","Tartaro ? San Miguel","Tawiran ? Obando","Telepatio ? San Ildefonso","Tiaong ? City of Baliwag","Tiaong ? Guiguinto","Tibag ? City of Baliwag","Tibag ? Pulilan","Tibagan ? Bustos","Tibagan ? San Miguel","Tibaguin ? Hagonoy","Tibig ? Bulacan","Tigbe ? Norzagaray","Tigpalas ? San Miguel","Tikay ? City of Malolos (Capital)","Tilapayong ? City of Baliwag","Tinejero ? Pulilan","Tugatog ? City of Meycauayan","Tukod ? San Rafael","Tuktukan ? Guiguinto","Tumana ? Santa Maria","Tungkong Mangga ? City of San Jose del Monte","Turo ? Bocaue","Ubihan ? City of Meycauayan","Ulingao ? San Rafael","Umpucan ? San Ildefonso","Upig ? San Ildefonso","Virgen delas Flores ? City of Baliwag","Wakas ? Bocaue","Wawa (Pob.) ? Balagtas (Bigaa)","Zamora ? City of Meycauayan"]})) if(!METRO_MANILA_BARANGAYS[city]) METRO_MANILA_BARANGAYS[city]=barangays;
 const METRO_MANILA_CITIES = Object.keys(METRO_MANILA_BARANGAYS);
 
 /* Scoping Helper Functions */
 function currentCity() {
+  if (session?.role === 'platform-admin' && canAdminModule(session,'admin_overview') && activeCity) return activeCity;
   const assigned = locationForId(session?.assigned_location);
   if (assigned) return assigned.city;
   if (session && session.city && session.city !== "Metro Manila (All Cities)") {
@@ -368,30 +373,23 @@ function getCityBarangays(cityName = currentCity()) {
   if (METRO_MANILA_DATA[cityName]) {
     return METRO_MANILA_DATA[cityName];
   }
-  // Fallback structure for cities without sample data yet
-  const bList = METRO_MANILA_BARANGAYS[cityName] || [];
-  const generated = {};
-  bList.slice(0, 3).forEach((bName, idx) => {
-    generated[bName] = {
-      risk: idx === 0 ? "high" : idx === 1 ? "medium" : "low",
-      affected: (idx + 1) * 15000,
-      teams: 2,
-      centers: [
-        { id: `c_${cityName}_${idx}`, name: `${bName} Evacuation Center`, capacity: 800, evacuees: (idx + 1) * 200 }
-      ]
-    };
-  });
-  return generated;
+  // A location catalogue does not supply flood or evacuation metrics.
+  return {};
 }
 
+function currentAdminLocationId(){
+  return session?.role === 'platform-admin' && canAdminModule(session,'admin_overview')
+    ? activeAdminLocationId || locationIdForCity(currentCity()) : session?.assigned_location || locationIdForCity(currentCity());
+}
 function scopedBarangays() {
-  const cityData = getCityBarangays();
-  const cityBarangays = METRO_MANILA_BARANGAYS[currentCity()] || Object.keys(cityData);
-  if (canAdminModule(session, 'admin_overview')) {
-    return cityBarangays.length ? cityBarangays : ['All barangays'];
-  }
-  if (session.barangay) return [session.barangay];
-  return cityBarangays.length ? cityBarangays : ['All barangays'];
+  if(session?.role !== 'platform-admin' && session?.barangay && session.barangay !== 'All barangays') return [session.barangay];
+  const id=currentAdminLocationId();
+  const legacyId=({'1380900000':'navotas','1380700000':'marikina','0301410000':'malolos'})[id] || id;
+  const location=locationForId(legacyId) || locationForId(id) || {};
+  const city=location.city || currentCity();
+  const mappedPsgc=({'navotas':'1380900000','marikina':'1380700000','malolos':'0301410000'})[legacyId];
+  const list=METRO_MANILA_BARANGAYS[city] || nationwideBarangays[id] || nationwideBarangays[mappedPsgc] || METRO_MANILA_BARANGAYS[location.map_city] || METRO_MANILA_BARANGAYS[(location.map_city || '')+' City'] || nationwideBarangays[id] || Object.keys(getCityBarangays());
+  return [...new Set(list)].filter(name=>name && name !== 'All barangays');
 }
 
 /* ============================================================
@@ -513,6 +511,8 @@ async function handleLogin(e){
   }
 
   const acct = {
+    id: user.id,
+    role: user.role,
     email: user.email,
     name: user.name,
     initials: (user.name || 'U').split(' ').filter(Boolean).slice(0, 2).map((part) => part[0].toUpperCase()).join('') || 'U',
@@ -575,22 +575,17 @@ async function handleRegister(e){
   }
 }
 
-function handleForgotPassword(e){
+async function handleForgotPassword(e){
   e.preventDefault();
-  const email = document.getElementById('forgot-email').value.trim();
-  
-  fetch('/forgot-password-notify', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Accept': 'application/json'
-    },
-    credentials: 'include',
-    body: JSON.stringify({ email })
-  }).catch(()=>{});
-
-  document.getElementById('reset-sent-email').textContent = email;
-  switchAuth('reset-sent');
+  const email=document.getElementById('forgot-email').value.trim(), button=e.target.querySelector('[type=submit]');
+  button.disabled=true;
+  try {
+    const response=await fetch(ADMIN_API_URL+'?action=forgot-password',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'include',body:JSON.stringify({email})});
+    const result=await response.json();
+    if(!response.ok) throw Error(result.error || 'Could not request a reset link.');
+    document.getElementById('reset-sent-email').textContent=email;switchAuth('reset-sent');
+  } catch(error){showAlert('forgot-alert','error',error.message)}
+  finally{button.disabled=false}
 }
 
 async function refreshPermissions() {
@@ -619,6 +614,7 @@ function enterConsole(acct){
   if (session.city && session.city !== "Metro Manila (All Cities)") {
     activeCity = session.city;
   }
+  activeAdminLocationId = acct.assigned_location || locationIdForCity(activeCity);
   session.activeBarangay = acct.barangay || Object.keys(getCityBarangays(activeCity))[0] || 'All barangays';
   loadAdminAccounts().catch(() => {});
   logAction("Account", "Sign in", `User signed in to the console.`);
@@ -692,6 +688,8 @@ function bellCount(){
 
 function populateBarangaySelects(){
   const list = scopedBarangays();
+  const locationSelect=document.getElementById('evac-location-select');
+  if(locationSelect){locationSelect.hidden=session?.role!=='platform-admin';locationSelect.value=currentAdminLocationId();}
   ['evac-barangay-select','reports-barangay-select','ann-barangay-select'].forEach(id=>{
     const el = document.getElementById(id);
     if (!el) return;
@@ -703,7 +701,8 @@ function populateBarangaySelects(){
   });
   const centerBarangay = document.getElementById('evac-center-barangay');
   if (centerBarangay) {
-    centerBarangay.innerHTML = list.map(b=>`<option value="${escapeNlpText(b)}">Brgy. ${escapeNlpText(b)}</option>`).join('');
+    centerBarangay.disabled=!list.length;
+    centerBarangay.innerHTML = (list.length ? '<option value="">Choose a barangay</option>' : '<option value="">Barangay data unavailable for this location</option>') + list.map(b=>`<option value="${escapeNlpText(b)}">Brgy. ${escapeNlpText(b)}</option>`).join('');
     centerBarangay.value = list.includes(session.activeBarangay) ? session.activeBarangay : list[0] || '';
   }
 }
@@ -1084,6 +1083,7 @@ function riskMeta(risk){
     high:{label:'High', cls:'risk-high', fill:'85%'},
     medium:{label:'Medium', cls:'risk-medium', fill:'50%'},
     low:{label:'Low', cls:'risk-low', fill:'22%'},
+    unknown:{label:'No data', cls:'risk-none', fill:'0%'},
     none:{label:'None', cls:'risk-none', fill:'6%'}
   }[risk] || {label:'Normal', cls:'risk-none', fill:'6%'};
 }
@@ -1256,21 +1256,22 @@ function renderCommand(){
     return acc;
   }, {affected:0, evacuees:0, centers:0, teams:0});
 
+  const metricsKnown=scope.some(barangay=>Boolean(cityData[barangay]));
   document.getElementById('command-metrics').innerHTML = `
-    <div class="metric-card"><div class="metric-num danger">${totals.affected.toLocaleString()}</div><div class="metric-label">Affected Residents</div></div>
-    <div class="metric-card"><div class="metric-num">${totals.evacuees.toLocaleString()}</div><div class="metric-label">Current Evacuees</div></div>
-    <div class="metric-card"><div class="metric-num">${totals.centers}</div><div class="metric-label">Evacuation Centers</div></div>
-    <div class="metric-card"><div class="metric-num">${totals.teams}</div><div class="metric-label">Teams Deployed</div></div>
+    <div class="metric-card"><div class="metric-num danger">${metricsKnown ? totals.affected.toLocaleString() : "&mdash;"}</div><div class="metric-label">Affected Residents</div></div>
+    <div class="metric-card"><div class="metric-num">${metricsKnown ? totals.evacuees.toLocaleString() : "&mdash;"}</div><div class="metric-label">Current Evacuees</div></div>
+    <div class="metric-card"><div class="metric-num">${metricsKnown ? totals.centers : "&mdash;"}</div><div class="metric-label">Evacuation Centers</div></div>
+    <div class="metric-card"><div class="metric-num">${metricsKnown ? totals.teams : "&mdash;"}</div><div class="metric-label">Teams Deployed</div></div>
   `;
 
-  document.getElementById('command-ledger').innerHTML = scope.map(b=>{
-    const d = cityData[b] || { risk: "none", affected: 0, centers: [], teams: 0 };
+  document.getElementById('command-ledger').innerHTML = (window.commandBarangayPage ? window.commandBarangayPage(scope) : scope.slice(0,10)).map(b=>{
+    const d = cityData[b] || { risk: "unknown", affected: 0, centers: [], teams: 0 };
     const rm = riskMeta(d.risk);
     const centerEvac = (d.centers || []).reduce((s,c)=>s+c.evacuees,0);
     const clickable = isFullAdmin;
     return `<div class="ledger-row ${d.risk}" ${clickable ? `style="cursor:pointer;" onclick="jumpToBarangay('${b}')"` : ''}>
       <div>
-        <div class="ledger-name">Barangay ${b}</div>
+        <div class="ledger-name">Barangay ${escapeNlpText(window.formatBarangayStatusName ? window.formatBarangayStatusName(b) : b)}</div>
         <div class="ledger-sub">${cCity}</div>
       </div>
       <span class="tide-badge ${rm.cls}" style="margin-left:14px;"><span class="tide-vial"><span class="tide-fill" style="height:${rm.fill};"></span></span>${rm.label}</span>
@@ -1318,7 +1319,7 @@ function renderEvacuees(){
 
 async function loadEvacuationCenters(city, barangay){
   const requestId = ++evacuationCentersRequest;
-  const locationId = session.assigned_location || locationIdForCity(city);
+  const locationId = currentAdminLocationId();
   if (!locationId) {
     document.getElementById('evac-grid').innerHTML = '<div class="empty-state">Choose a supported location to view its evacuation centers.</div>';
     return;
@@ -1381,7 +1382,7 @@ async function createEvacuationCenter(event){
   const city = currentCity();
   const payload = {
     action: 'evacuation-center-create',
-    location_id: session.assigned_location || locationIdForCity(city),
+    location_id: currentAdminLocationId(),
     barangay: document.getElementById('evac-center-barangay').value,
     name: document.getElementById('evac-center-name').value.trim(),
     address: document.getElementById('evac-center-address').value.trim(),
@@ -1429,7 +1430,7 @@ async function deleteEvacuationCenter(centerId){
   }
   if (!window.confirm(`Delete "${center.name}"? Residents will no longer see this center.`)) return;
   const city = currentCity();
-  const locationId = session.assigned_location || locationIdForCity(city);
+  const locationId = currentAdminLocationId();
   try {
     const response = await fetch(ADMIN_API_URL, {
       method: 'POST',
@@ -1457,7 +1458,7 @@ async function updateEvacCount(centerId){
     return;
   }
   const city = currentCity();
-  const locationId = session.assigned_location || locationIdForCity(city);
+  const locationId = currentAdminLocationId();
   const input = document.getElementById(`evac-input-${centerId}`);
   const evacuees = Number(input.value);
   const center = EVACUATION_CENTERS.find((item) => Number(item.id) === centerId);
@@ -1633,7 +1634,15 @@ async function refreshNlpEvents(){
       throw error;
     }
     nlpServiceHealth = payload.nlpService || {};
-    NLP_EVENTS = Array.isArray(payload.events) ? payload.events : [];
+    const collectedEvents=Array.isArray(payload.events)?payload.events:[];
+    let before=payload.next_before;
+    while(before){
+      params.set('before',before);params.set('as_of',payload.as_of);
+      const nextResponse=await fetch(ADMIN_API_URL+'?'+params,{credentials:'include'});
+      const next=await nextResponse.json();if(!nextResponse.ok)throw Error(next.error||'Could not load remaining posts.');
+      collectedEvents.push(...next.events);before=next.next_before;
+    }
+    NLP_EVENTS=collectedEvents;
     NLP_STATS = {...NLP_STATS, ...(payload.stats || {})};
     nlpIngestionConfigured = Boolean(payload.ingestionConfigured);
     nlpFeedStatus = nlpIngestionConfigured ? 'live' : 'offline';
@@ -1921,7 +1930,7 @@ function setReportsFilter(id){ reportsFilter = id; renderReports(); }
 
 async function fetchReports(){
   try{
-    const locationId = session.assigned_location || locationIdForCity(currentCity());
+    const locationId = currentAdminLocationId();
     const response = await fetch(`${ADMIN_API_URL}?action=reports&location=${encodeURIComponent(locationId)}`, {credentials:'include'});
     const data = await response.json().catch(() => ({}));
     if(!response.ok) throw new Error(data.error || 'Reports could not be loaded.');
@@ -1930,7 +1939,7 @@ async function fetchReports(){
       city: report.city,
       barangay: report.barangay,
       barangay_feature_id: report.barangay_feature_id,
-      latitude:report.latitude, longitude:report.longitude, street_name:report.street_name,
+      latitude:report.latitude, longitude:report.longitude, street_name:report.street_name, map_hidden: Boolean(Number(report.map_hidden)),
       severity: String(report.severity || 'medium').toLowerCase(),
       reporter: report.reporter,
       source: report.source,
@@ -1949,9 +1958,10 @@ async function fetchReports(){
 }
 
 function renderReports(){
+  window.renderReportManager?.();
   window.dispatchEvent(new CustomEvent('bahaba-reports-map', { detail: {
-    locationId: session?.assigned_location || locationIdForCity(currentCity()),
-    canReport: canCreateModule(session, 'approval_board'), reports: REPORTS,
+    locationId: currentAdminLocationId(),
+    canReport: canCreateModule(session, 'approval_board'), canHide: canApproveModule(session, 'approval_board'), canDelete: canApproveModule(session, 'approval_board'), reports: REPORTS,
   } }));
   renderNlpMonitor();
   renderReportsFilterChips();
@@ -1960,7 +1970,7 @@ function renderReports(){
   session.activeBarangay = scopeB;
   const cCity = currentCity();
   
-  let list = REPORTS.filter(r => (r.city === cCity || !r.city) && (!scopeB || scopeB === 'All barangays' || r.barangay === scopeB));
+  let list = REPORTS.filter(r => r.status !== 'rejected' && (r.city === cCity || !r.city) && (!scopeB || scopeB === 'All barangays' || r.barangay === scopeB));
   if(reportsFilter !== 'all') list = list.filter(r=>r.status===reportsFilter);
 
   const canApprove = canApproveModule(session, 'approval_board');
@@ -1993,6 +2003,8 @@ function renderReports(){
         <div class="report-desc">${escapeNlpText(r.desc || "")}</div>
       </div>
       <div class="report-actions">
+        ${canApprove ? `<button class="btn btn-outline btn-sm" onclick="manageReport(${r.id},'${r.map_hidden ? 'show' : 'hide'}')">${r.map_hidden ? 'Show on map' : 'Hide from map'}</button>` : ''}
+        ${canApproveModule(session, 'approval_board') ? `<button class="btn btn-outline btn-sm report-delete-button" onclick="manageReport(${r.id},'delete')">Delete report</button>` : ''}
         ${r.status==='pending' ? `
           ${canReject ? `<button class="btn btn-outline btn-sm" onclick="setReportStatus(${r.id},'rejected')">Reject</button>` : ''}
           ${canApprove ? `<button class="btn btn-primary btn-sm" onclick="setReportStatus(${r.id},'verified')">Verify</button>` : ''}
@@ -2050,7 +2062,7 @@ function setAnnFilter(id){ annFilter = id; renderAnnouncements(); }
 
 async function fetchAnnouncements() {
   try {
-    const locationId = session.assigned_location || locationIdForCity(currentCity());
+    const locationId = currentAdminLocationId();
     const res = await fetch(`${ADMIN_API_URL}?action=announcements&location=${encodeURIComponent(locationId)}`, { headers: { Accept: 'application/json' }, credentials: 'include' });
     if (res.ok) {
       const data = await res.json();
@@ -2317,11 +2329,13 @@ function changeAdminLocation(selectId){
   const location = locationForId(document.getElementById(selectId)?.value);
   if(!location) return;
   activeCity = location.city;
-  ['command-location-select', 'reports-location-select', 'ann-location-select'].forEach((id) => {
+  activeAdminLocationId = location.id;
+  ['command-location-select', 'reports-location-select', 'ann-location-select', 'evac-location-select'].forEach((id) => {
     const select = document.getElementById(id);
     if(select && selectId !== id) select.value = location.id;
   });
   populateBarangaySelects();
+  if(selectId === 'evac-location-select') renderEvacuees();
   if(selectId === 'command-location-select') renderCommand();
   if(selectId === 'reports-location-select') { fetchReports(); refreshNlpEvents(); }
   if(selectId === 'ann-location-select') { fetchAnnouncements(); renderAnnouncements(); }
@@ -2416,6 +2430,11 @@ async function loadReportTrends(locationId, panelId = 'report-trends-panel', sup
       const monthIndex = Number(month.slice(5))-1;
       if(monthIndex >= 0 && monthIndex < 12) seasons[monthIndex] += count;
     }
+    if(panelId !== 'summary-history'){
+      const visuals=document.createElement('div');visuals.className='analytics-visuals history-analytics';content.append(visuals);
+      renderSummaryVisuals(payload.rows || [],payload.nlpRows || [],visuals);
+      return;
+    }
     if(!months.size){ const empty=document.createElement('p');empty.textContent='No flood reports recorded for this location yet.';content.append(empty);return; }
     const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
     const highest = Math.max(...seasons);
@@ -2423,12 +2442,12 @@ async function loadReportTrends(locationId, panelId = 'report-trends-panel', sup
     peak.textContent = 'Peak reporting month(s): '+seasons.flatMap((count,index)=>count === highest ? [monthNames[index]] : []).join(', ')+' ('+highest+' reports per month across recorded years).';
     content.append(peak);
     function table(caption,headers,rows){
-      const wrap=document.createElement('div');wrap.style.overflowX='auto';wrap.style.marginTop='18px';
-      const element=document.createElement('table');element.style.width='100%';
+      const wrap=document.createElement('div');wrap.className='compact-history-table';
+      const element=document.createElement('table');element.className='compact-data-table';
       const label=document.createElement('caption');label.textContent=caption;label.style.textAlign='left';label.style.fontWeight='700';label.style.padding='10px 0';element.append(label);
       const head=document.createElement('thead'),headRow=document.createElement('tr');
       headers.forEach(value=>{const cell=document.createElement('th');cell.scope='col';cell.textContent=value;headRow.append(cell)});head.append(headRow);element.append(head);
-      const body=document.createElement('tbody');rows.forEach(values=>{const row=document.createElement('tr');values.forEach(value=>{const cell=document.createElement('td');cell.textContent=String(value);cell.style.padding='10px 8px';row.append(cell)});body.append(row)});element.append(body);wrap.append(element);content.append(wrap);
+      const body=document.createElement('tbody');rows.forEach(values=>{const row=document.createElement('tr');values.forEach(value=>{const cell=document.createElement('td');cell.textContent=String(value);cell.style.padding='6px 8px';row.append(cell)});body.append(row)});element.append(body);wrap.append(element);content.append(wrap);
     }
     table('Monthly report totals',['Month','Total','High','Medium','Low','Verified','Pending'],[...months.entries()].sort((a,b)=>b[0].localeCompare(a[0])).map(([month,s])=>[month,s.total,s.high,s.medium,s.low,s.verified,s.pending]));
     table('Most frequently reported barangays',['Barangay','Reports','Verified'],[...places.entries()].sort((a,b)=>b[1].total-a[1].total).slice(0,10).map(([place,s])=>[place,s.total,s.verified]));
@@ -2482,7 +2501,7 @@ async function renderSummaryDashboard(){
     if(redundantChart){while(redundantChart.nextSibling)redundantChart.nextSibling.remove();redundantChart.remove();}
     if(request !== summaryRequest) return;
     const collected=document.getElementById('summary-collected');
-    const info=document.createElement('p');info.className='view-sub';info.textContent='Collected posts are separate from submitted reports and should not be added to report totals. NLP data covers records currently available in the collector database; report history includes permanent monthly summaries.';collected.append(info);
+    const info=document.createElement('p');info.className='view-sub';info.textContent='Posts collected more than 24 hours ago are summarized here for the latest 12 months. Collection history below provides calendar-year selection and Excel export. Post totals are separate from verified report totals.';collected.append(info);
     const total=sum(nlp,'total'), flood=sum(nlp,'total',r=>r.classification==='Flood');
     const counts=document.createElement('p');counts.textContent=total+' analyzed posts · '+flood+' classified as flood · '+(total-flood)+' classified as non-flood';collected.append(counts);
     const groups=new Map();
@@ -2508,8 +2527,8 @@ function styleSummaryMetrics(){
     const hint=document.createElement('small');hint.textContent=labels[index];card.prepend(icon);card.append(hint);
   });
 }
-function renderSummaryVisuals(reports,nlp){
-  const host=document.getElementById('summary-visuals');host.replaceChildren();
+function renderSummaryVisuals(reports,nlp,targetHost=null){
+  const host=targetHost || document.getElementById('summary-visuals');host.replaceChildren();
   const make=(tag,className,text)=>{const item=document.createElement(tag);if(className)item.className=className;if(text!==undefined)item.textContent=String(text);return item;};
   const card=(eyebrow,title)=>{const item=make('section','analytics-chart-card');item.append(make('div','analytics-eyebrow',eyebrow),make('h3','',title));host.append(item);return item;};
   const valid=reports.filter(r=>!['rejected','resolved','cancelled'].includes(r.status));
@@ -2534,3 +2553,19 @@ function renderSummaryVisuals(reports,nlp){
   if(!top.length)hotspots.append(make('p','analytics-chart-note','Barangay rankings appear when reports are recorded.'));
   const ranks=make('div','analytics-ranks');top.forEach(([place,count],index)=>{const row=make('div','analytics-rank');const rank=make('span','analytics-rank-number',String(index+1).padStart(2,'0'));const copy=make('div','analytics-rank-copy');copy.append(make('strong','',place));const track=make('div','analytics-rank-track');const bar=make('span','');bar.style.width=(count/top[0][1]*100)+'%';track.append(bar);copy.append(track);row.append(rank,copy,make('strong','analytics-rank-count',count));ranks.append(row)});hotspots.append(ranks,make('p','analytics-chart-footnote','Report frequency indicates reported activity, not measured flood risk.'));
 }
+
+// Persist map visibility separately from review status; preserve existing delete permissions.
+async function manageReport(id, action){
+  if(!['hide','show','delete'].includes(action))return;
+  if(action==='delete' && !window.confirm('Delete report #'+id+' and its map pin? This removes the report from report lists and totals.'))return;
+  try {
+    const tokenResponse=await fetch(ADMIN_API_URL+'?action=report-management-session',{credentials:'include',cache:'no-store'});
+    const token=await tokenResponse.json();if(!tokenResponse.ok)throw Error(token.error||'Sign in again.');
+    const response=await fetch(ADMIN_API_URL,{method:'POST',credentials:'include',headers:{'Content-Type':'application/json','X-CSRF-Token':token.csrf},body:JSON.stringify({action:action==='delete'?'report-delete':'report-map-visibility',id,...(action==='delete'?{}:{hidden:action==='hide'})})});
+    const result=await response.json();if(!response.ok)throw Error(result.error||'Report could not be updated.');
+    await fetchReports();
+    await window.refreshManagedReports?.();
+    showToast(action==='delete'?'Report and pin deleted':action==='hide'?'Hidden from map. Report kept in history.':'Report pin shown on map');
+  }catch(error){showToast(error.message);}
+}
+window.manageReport=manageReport;

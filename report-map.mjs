@@ -7,6 +7,7 @@ let requestNumber = 0;
 let currentFeatures = [];
 let currentReports = [];
 let scopeBoundary = null, scopeLayer = null;
+let canHideReports=false, canDeleteReports=false;
 const form = document.getElementById('lgu-map-report-form');
 const select = document.getElementById('lgu-map-barangay');
 const message = document.getElementById('lgu-map-report-message');
@@ -19,7 +20,7 @@ function syncLayers() {
   // Static borders stay mounted while live reports refresh.
   selectedLayer.clearLayers().addData(collection(selected ? [selected] : []));
   const affected = currentFeatures.flatMap((feature) => {
-    const matches = currentReports.filter((report) => report.latitude == null && !['rejected','resolved','cancelled'].includes(report.status) &&
+    const matches = currentReports.filter((report) => report.latitude == null && !report.map_hidden && !['rejected','resolved','cancelled'].includes(report.status) &&
       (report.barangay_feature_id ? String(report.barangay_feature_id) === String(feature.id) :
         report.barangay === feature.properties.name && currentFeatures.filter((item) => item.properties.name === report.barangay).length === 1));
     if (!matches.length) return [];
@@ -27,7 +28,7 @@ function syncLayers() {
     return [{ ...feature, properties: { ...feature.properties, severity } }];
   });
   floodLayer.clearLayers().addData(collection(affected));
-  storedPointLayer?.clearLayers().addData(collection(currentReports.filter(report => report.latitude != null && report.longitude != null && !['rejected','resolved','cancelled'].includes(report.status)).map(report => ({type:'Feature',geometry:{type:'Point',coordinates:[Number(report.longitude),Number(report.latitude)]},properties:{severity:report.severity}}))));
+  storedPointLayer?.clearLayers().addData(collection(currentReports.filter(report => report.latitude != null && report.longitude != null && !report.map_hidden && !['rejected','resolved','cancelled'].includes(report.status)).map(report => ({type:'Feature',geometry:{type:'Point',coordinates:[Number(report.longitude),Number(report.latitude)]},properties:{id:report.id,barangay:report.barangay,severity:report.severity,description:report.desc || report.description}}))));
 }
 
 function fitFeatures(features, maxZoom = 16) {
@@ -101,7 +102,20 @@ function createMap() {
     style:{ color:'#145cbe', weight:4, fillColor:'#2382ed', fillOpacity:.2 },
   }).addTo(map);
 
-  storedPointLayer = geoJSON(collection([]), {pointToLayer:(feature,latlng) => circleMarker(latlng,{pane:'reportFloods',radius:7,color:'#ffffff',weight:2,fillColor:colors[feature.properties.severity] || colors.low,fillOpacity:1,interactive:false})}).addTo(map);
+  map.createPane('reportPins').style.zIndex=450;
+  storedPointLayer = geoJSON(collection([]), {
+    pointToLayer:(feature,latlng) => circleMarker(latlng,{pane:'reportPins',radius:8,color:'#ffffff',weight:2,fillColor:colors[feature.properties.severity] || colors.low,fillOpacity:1,interactive:true,bubblingMouseEvents:false}),
+    onEachFeature(feature,layer){
+      const popup=document.createElement('div');popup.className='report-pin-popup';
+      const title=document.createElement('strong');title.textContent='Report #'+feature.properties.id+' · '+feature.properties.barangay;
+      const description=document.createElement('p');description.textContent=feature.properties.severity+' · '+(feature.properties.description||'');popup.append(title,description);
+      for(const [action,label,allowed] of [['hide','Hide from map',canHideReports],['delete','Delete report',canDeleteReports]]){
+        if(!allowed)continue;const button=document.createElement('button');button.type='button';button.className='btn btn-outline btn-sm';button.textContent=label;
+        button.addEventListener('click',event=>{event.stopPropagation();map.closePopup();window.manageReport(Number(feature.properties.id),action);});popup.append(button);
+      }
+      layer.bindPopup(popup);layer.on('click',()=>{});
+    }
+  }).addTo(map);
   const loading = document.createElement('div');
   loading.className = 'lgu-map-loading is-warning';
   loading.setAttribute('role','status');
@@ -128,6 +142,7 @@ function createMap() {
 window.addEventListener('bahaba-reports-map', async (event) => {
   const request = ++requestNumber;
   const { locationId, canReport, reports } = event.detail;
+  canHideReports=Boolean(event.detail.canHide); canDeleteReports=Boolean(event.detail.canDelete);
   form.hidden = !canReport;
   if (!locationId) return;
   try {
