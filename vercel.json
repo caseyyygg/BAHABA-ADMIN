@@ -1,0 +1,10 @@
+{
+  "buildCommand": "node deploy-build.js",
+  "outputDirectory": "vercel-dist",
+  "rewrites": [
+    {
+      "source": "/admin-api.php",
+      "destination": "https://bahaba-api.vercel.app/api/admin"
+    }
+  ]
+}

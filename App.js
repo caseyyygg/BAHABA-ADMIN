@@ -158,68 +158,14 @@ const VIEW_MODULE_MAP = {
   'all-reports': 'approval_board',
   announcements: 'announcements',
   logs: 'approval_board_hr',
+  summary: 'approval_board',
+  'nlp-api': 'approval_board',
   users: 'admin_overview'
 };
 
-/* Registered accounts for local testing / offline fallback */
-let ACCOUNTS = [
-  {
-    email: "miguel.torres@bahaba.ph",
-    password: "Bahaba@2026",
-    name: "Miguel Torres",
-    initials: "MT",
-    org: "BAHABA Platform Admin",
-    city: "Metro Manila (All Cities)",
-    ip: "IP: 10.0.4.2",
-    status: "active",
-    acls: {
-      admin_overview: 'full',
-      announcements: 'full',
-      products: 'full',
-      approval_board: 'full',
-      approval_board_hr: 'full'
-    }
-  },
-  {
-    email: "elena.villareal@malabon.gov.ph",
-    password: "Concepcion@2026",
-    name: "Elena Villareal",
-    initials: "EV",
-    org: "Brgy. Concepcion",
-    city: "Malabon City",
-    barangay: "Concepcion",
-    ip: "IP: 121.54.12.8",
-    status: "active",
-    acls: {
-      admin_overview: 'view',
-      announcements: 'edit',
-      products: 'edit',
-      approval_board: 'edit',
-      approval_board_hr: 'no_access'
-    }
-  },
-  {
-    email: "qc.admin@quezoncity.gov.ph",
-    password: "Batasan@2026",
-    name: "Marco Rivera",
-    initials: "MR",
-    org: "Brgy. Batasan Hills",
-    city: "Quezon City",
-    barangay: "Batasan Hills",
-    ip: "IP: 121.54.18.12",
-    status: "active",
-    acls: {
-      admin_overview: 'view',
-      announcements: 'edit',
-      products: 'edit',
-      approval_board: 'edit',
-      approval_board_hr: 'no_access'
-    }
-  }
-];
-
+let ACCOUNTS = [];
 let APP_USERS = [];
-const ADMIN_API_URL = 'http://localhost:8001/api.php';
+const ADMIN_API_URL = ['localhost', '127.0.0.1', '[::1]'].includes(window.location.hostname) ? '/api.php' : '/admin-api.php';
 
 function bindUserManagerFilters(){
   const adminSearch = document.getElementById('admin-user-search');
@@ -292,7 +238,7 @@ async function loadAdminAccounts() {
       });
     }
   } catch (error) {
-    console.warn('Using local account fallback:', error);
+    console.warn('Failed to load admin and app accounts:', error);
   }
 }
 
@@ -323,7 +269,9 @@ const SESSION_EXPIRY_DAYS = 30; // Keep session for 30 days
 
 function saveSessionToStorage(sessionData) {
   try {
-    localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(sessionData));
+    const safeSession = { ...sessionData };
+    delete safeSession.password;
+    localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(safeSession));
     const expiryDate = new Date();
     expiryDate.setDate(expiryDate.getDate() + SESSION_EXPIRY_DAYS);
     localStorage.setItem(SESSION_STORAGE_EXPIRY_KEY, expiryDate.getTime().toString());
@@ -361,8 +309,17 @@ function clearSessionFromStorage() {
 window.addEventListener('DOMContentLoaded', function() {
   const savedSession = getSessionFromStorage();
   if (savedSession) {
-    enterConsole(savedSession);
-    loadAdminAccounts();
+    fetch(`${ADMIN_API_URL}?action=session`, { credentials: 'include', headers: { Accept: 'application/json' } })
+      .then(async (response) => {
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.user) throw new Error(data.error || 'Admin session is no longer valid.');
+        enterConsole(data.user);
+        loadAdminAccounts();
+      })
+      .catch((error) => {
+        console.warn('Could not restore the server-side admin session:', error.message);
+        clearSessionFromStorage();
+      });
   }
 });
 
@@ -522,8 +479,9 @@ async function handleLogin(e){
   const email = document.getElementById('login-email').value.trim().toLowerCase();
   const password = document.getElementById('login-password').value;
 
+  let res;
   try {
-    const res = await fetch(ADMIN_API_URL, {
+    res = await fetch(ADMIN_API_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -537,47 +495,40 @@ async function handleLogin(e){
       })
     });
 
-    if (res.ok) {
-      const data = await res.json();
-      const user = data.user;
-      if (!user) {
-        throw new Error('No user returned');
-      }
-
-      const acct = {
-        email: user.email,
-        password,
-        name: user.name,
-        initials: (user.name || 'U').split(' ').filter(Boolean).slice(0, 2).map((part) => part[0].toUpperCase()).join('') || 'U',
-        org: user.org,
-        city: user.city || 'Malabon City',
-        assigned_location: user.assigned_location || '',
-        barangay: user.barangay || undefined,
-        status: user.status || 'active',
-        acls: user.acls || {}
-      };
-
-      if (acct.status === 'pending') {
-        showAlert('login-alert', 'error', "This account is awaiting approval from the BAHABA team. You'll get an email once it's verified.");
-        return;
-      }
-
-      enterConsole(acct);
-      return;
-    }
   } catch (err) {
-    console.warn('Admin DB login failed, using local fallback.', err);
-  }
-
-  const acct = ACCOUNTS.find(a=>a.email.toLowerCase()===email);
-  if(!acct || acct.password !== password){
-    showAlert('login-alert', 'error', 'Incorrect email or password. Please try again.');
+    console.warn('Admin DB login failed.', err);
+    showAlert('login-alert', 'error', 'Cannot reach the admin API. Check your connection and try again.');
     return;
   }
-  if(acct.status === 'pending'){
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    showAlert('login-alert', 'error', data.error || 'Incorrect email or password. Please try again.');
+    return;
+  }
+  const user = data.user;
+  if (!user) {
+    showAlert('login-alert', 'error', 'The admin API returned an invalid sign-in response.');
+    return;
+  }
+
+  const acct = {
+    email: user.email,
+    name: user.name,
+    initials: (user.name || 'U').split(' ').filter(Boolean).slice(0, 2).map((part) => part[0].toUpperCase()).join('') || 'U',
+    org: user.org,
+    city: user.city || 'Malabon City',
+    assigned_location: user.assigned_location || '',
+    barangay: user.barangay || undefined,
+    status: user.status || 'active',
+    acls: user.acls || {}
+  };
+
+  if (acct.status === 'pending') {
     showAlert('login-alert', 'error', "This account is awaiting approval from the BAHABA team. You'll get an email once it's verified.");
     return;
   }
+
   enterConsole(acct);
 }
 
@@ -722,7 +673,7 @@ function applyPermissions(){
   document.querySelectorAll('.sb-link').forEach(link=>{
     const v = link.dataset.view;
     const mod = VIEW_MODULE_MAP[v];
-    const allowed = canViewModule(session, mod);
+    const allowed = canViewModule(session, mod) && (v !== 'users' || (session.role === 'platform-admin' && canAdminModule(session, 'admin_overview')));
     link.classList.toggle('disabled', !allowed);
     const lock = link.querySelector('[data-lock-icon]');
     if(lock) lock.style.display = allowed ? 'none' : 'inline-flex';
@@ -762,7 +713,7 @@ function populateBarangaySelects(){
    ============================================================ */
 function go(viewName){
   const modKey = VIEW_MODULE_MAP[viewName];
-  if(!canViewModule(session, modKey)) {
+  if(!canViewModule(session, modKey) || (viewName === 'users' && (session.role !== 'platform-admin' || !canAdminModule(session, 'admin_overview')))) {
     showToast('Permission denied: No access to this module');
     return;
   }
@@ -777,7 +728,7 @@ function go(viewName){
   const link = document.querySelector(`.sb-link[data-view="${viewName}"]`);
   if(link) link.classList.add('active');
 
-  const titles = {command:'Command Center', evacuees:'Evacuees', reports:'Reports', 'all-reports':'All Reports', announcements:'Announcements', logs:'System Logs & Security', users:'Account Manager'};
+  const titles = {summary:'Summary & Analytics', 'nlp-api':'NLP API', command:'Command Center', evacuees:'Evacuees', reports:'Reports', 'all-reports':'All Reports', announcements:'Announcements', logs:'System Logs & Security', users:'Account Manager'};
   document.getElementById('tb-title').textContent = titles[viewName];
   document.getElementById('tb-scope').textContent = canAdminModule(session, 'admin_overview')
     ? `All Metro Manila Cities (${activeCity})`
@@ -792,6 +743,8 @@ function go(viewName){
   if(viewName==='announcements') { fetchAnnouncements(); renderAnnouncements(); }
   if(viewName==='logs') { fetchLogs(); renderLogs(); }
   if(viewName==='users') renderUserManager();
+  if(viewName==='nlp-api') renderNlpConnections();
+  if(viewName==='summary') renderSummaryDashboard();
   document.querySelector('.main').scrollTop = 0;
 }
 
@@ -1160,9 +1113,11 @@ function renderModulePanel(){
   const panel = document.getElementById('module-panel');
   const available = [
     {id:'command', label:'Operations Module', mod:'admin_overview'},
+    {id:'nlp-api', label:'NLP API', mod:'approval_board'},
+    {id:'summary', label:'Summary & Analytics', mod:'approval_board'},
     {id:'users', label:'Account Manager', mod:'admin_overview'},
     {id:'logs', label:'Platform Admin Module', mod:'approval_board_hr'}
-  ].filter(m => canViewModule(session, m.mod));
+  ].filter(m => canViewModule(session, m.mod) && (m.id !== 'users' || (session.role === 'platform-admin' && canAdminModule(session, 'admin_overview'))));
 
   panel.innerHTML = available.map(m=>
     `<div class="tb-dropdown-item" onclick="go('${m.id}')">${m.label}</div>`
@@ -1191,6 +1146,7 @@ async function loadCommandCenter(){
   const locationId = isPlatformAdmin
     ? (selector.value || SUPPORTED_LOCATIONS[0]?.id)
     : session.assigned_location;
+  loadReportTrends(locationId);
   const location = locationForId(locationId);
   const label = document.getElementById('command-location-label');
   if(label) label.textContent = location ? location.name : 'Location not assigned';
@@ -1559,7 +1515,47 @@ function safeSocialPostUrl(value){
   }
 }
 
+function renderCollectorStatuses(id, health){
+  const grid = document.getElementById(id);
+  if(!grid) return;
+  const platforms = [
+    ['X', {configured:health.x_collector_configured, running:health.x_collector_running, last_error:health.x_last_error, last_poll:health.x_last_poll, posts_processed:health.x_posts_processed}],
+    ['Facebook', health.social_browser_collectors?.Facebook],
+    ['Threads', health.social_browser_collectors?.Threads],
+  ];
+  grid.replaceChildren(...platforms.map(([name,state]) => {
+    const card = document.createElement('div');
+    card.className = 'collector-status-card';
+    const title = document.createElement('strong'); title.textContent = name;
+    const label = document.createElement('span');
+    const error = String(state?.last_error || '');
+    label.textContent = !state ? 'Status unavailable' : /requires login|expired|waiting for.*login/i.test(error) ? 'Sign-in required' : error ? 'Needs attention' : !state.configured ? 'Not configured' : !state.running ? 'Stopped' : state.last_poll ? 'Polling active' : 'Starting searches';
+    card.dataset.state = error ? 'attention' : state?.running && state?.configured ? 'active' : 'waiting';
+    const detail = document.createElement('small');
+    detail.textContent = error || (Number(state?.posts_processed || 0) + ' posts analyzed this session');
+    card.append(title,label,detail);
+    return card;
+  }));
+}
+
+function socialCollectorMessage(health){
+  const messages = [];
+  if(health?.x_provider === 'agent-reach') {
+    messages.push(!health.x_collector_configured ? 'X: waiting for local sign-in.' : health.x_last_error ? 'X: ' + String(health.x_last_error) : 'X: checks recent flood posts every ' + Number(health.x_poll_seconds || 60) + ' seconds; ' + Number(health.x_posts_processed || 0) + ' analyzed across all locations this session.');
+  }
+  for(const [source, state] of Object.entries(health?.social_browser_collectors || {})) {
+    messages.push(source + ': ' + (state.last_error || (!state.configured ? 'keyword search is disabled; configure local targets or enable search.' : (state.last_poll ? 'keyword search active' : 'starting keyword searches') + '; ' + Number(state.posts_processed || 0) + ' analyzed this session; rotates five searches every ' + Number(state.poll_seconds || 300) + ' seconds.')));
+  }
+  return messages.join('  |  ');
+}
+function socialCollectorBadge(health){
+  const states = Object.values(health?.social_browser_collectors || {});
+  if(health?.x_last_error || states.some(state => state.last_error)) return 'Social collectors need attention';
+  return 'Social keyword collection active';
+}
+let nlpServiceHealth = {};
 function renderNlpMonitor(){
+  renderCollectorStatuses("nlp-collector-statuses", nlpServiceHealth);
   const statsHolder = document.getElementById('nlp-stats');
   const eventHolder = document.getElementById('nlp-events-list');
   if(!statsHolder || !eventHolder) return;
@@ -1569,7 +1565,7 @@ function renderNlpMonitor(){
   const events = NLP_EVENTS.filter(event => {
     const eventCity = normalizedPlace(event.city);
     const cityMatch = !eventCity || eventCity === city || city === 'metro manila (all cities)';
-    const barangayMatch = !event.barangay || !selectedBarangay || normalizedPlace(event.barangay) === normalizedPlace(selectedBarangay);
+    const barangayMatch = !event.barangay || !selectedBarangay || selectedBarangay === 'All barangays' || normalizedPlace(event.barangay) === normalizedPlace(selectedBarangay);
     return cityMatch && barangayMatch;
   });
 
@@ -1583,17 +1579,23 @@ function renderNlpMonitor(){
   const status = document.getElementById('nlp-live-badge');
   const statusLabel = document.getElementById('nlp-live-label');
   if(status) status.className = `nlp-live-badge ${nlpFeedStatus}`;
-  if(statusLabel) statusLabel.textContent = nlpFeedStatus === 'live' ? 'Live' : nlpFeedStatus === 'offline' ? 'Feed offline' : 'Connecting';
+  const xHealth = nlpServiceHealth.x_provider === 'agent-reach' ? nlpServiceHealth : null;
+  if(statusLabel) statusLabel.textContent = nlpFeedStatus === 'offline' ? 'Feed offline' : xHealth ? (!xHealth.x_collector_configured ? 'Waiting for X login' : xHealth.x_last_error ? 'X collector needs attention' : 'X polling active') : nlpFeedStatus === 'live' ? 'Live' : 'Connecting';
+  if(statusLabel && nlpServiceHealth.social_browser_collectors) statusLabel.textContent = socialCollectorBadge(nlpServiceHealth);
+  if(status && xHealth) status.className = 'nlp-live-badge ' + (nlpFeedStatus === 'offline' || xHealth.x_last_error && xHealth.x_collector_configured ? 'offline' : xHealth.x_collector_configured ? 'live' : 'ready');
+  if(status && nlpServiceHealth.social_browser_collectors) status.className = 'nlp-live-badge ' + (socialCollectorBadge(nlpServiceHealth).includes('attention') ? 'attention' : 'live');
   const resultsCount = document.getElementById('nlp-results-count');
   if(resultsCount) resultsCount.textContent = nlpLastUpdated ? `${events.length} matching results · synced ${nlpLastUpdated}` : 'Waiting for first sync';
   const alert = document.getElementById('nlp-feed-alert');
   if(alert){
     alert.style.display = nlpFeedStatus === 'offline' ? 'block' : 'none';
-    alert.textContent = nlpFeedMessage || 'The live NLP API is unavailable. The monitor will retry automatically.';
+    const xMessage = socialCollectorMessage(nlpServiceHealth) + (nlpServiceHealth.x_provider === 'agent-reach' ? ' Showing ' + events.length + ' matching posts for ' + currentCity() + '.' : '');
+    alert.style.display = nlpFeedStatus === 'offline' || xMessage ? 'block' : 'none';
+    alert.textContent = nlpFeedMessage || xMessage || 'The live NLP API is unavailable. The monitor will retry automatically.';
   }
 
   if(!events.length){
-    eventHolder.innerHTML = `<tr><td colspan="6" class="nlp-empty">${NLP_EVENTS.length ? 'No NLP results match this city or barangay yet.' : nlpIngestionConfigured ? 'The NLP receiver is ready, but no Facebook/X post collector is connected yet. Connect an authorized source collector to send posts to the inference service.' : 'NLP ingestion is not configured yet.'}</td></tr>`;
+    eventHolder.innerHTML = `<tr><td colspan="6" class="nlp-empty">${NLP_EVENTS.length ? 'No NLP results match this city or barangay yet.' : nlpIngestionConfigured ? 'Waiting for matching posts. Collector status appears above.' : 'NLP ingestion is not configured yet.'}</td></tr>`;
     return;
   }
 
@@ -1630,6 +1632,7 @@ async function refreshNlpEvents(){
       error.status = response.status;
       throw error;
     }
+    nlpServiceHealth = payload.nlpService || {};
     NLP_EVENTS = Array.isArray(payload.events) ? payload.events : [];
     NLP_STATS = {...NLP_STATS, ...(payload.stats || {})};
     nlpIngestionConfigured = Boolean(payload.ingestionConfigured);
@@ -1640,12 +1643,12 @@ async function refreshNlpEvents(){
     nlpFeedStatus = 'offline';
     nlpIngestionConfigured = false;
     nlpFeedMessage = error.status === 401
-      ? 'Admin session is missing or expired. Sign in again through the BAHABA-ADMIN site at http://localhost:8001/; opening index.html as a file does not establish the API session.'
+      ? 'Admin session is missing or expired. Sign in again through the BAHABA-ADMIN site.'
       : error.status === 403
         ? 'Your account does not have permission to view the NLP monitor. Ask a platform administrator to check your Reports access.'
         : error.status
           ? `NLP API request failed (${error.status}): ${error.message}`
-          : 'Cannot connect to the admin API at localhost:8001. Start the BAHABA-ADMIN PHP server and keep it running; the monitor will retry automatically.';
+          : 'Cannot connect to the admin API. Check the API host and try again; the monitor will retry automatically.';
     console.warn('NLP monitor refresh failed:', error.message);
   }
   renderNlpMonitor();
@@ -1757,6 +1760,7 @@ async function refreshAllReports(){
 }
 
 function renderAllNlpMonitor(){
+  renderCollectorStatuses("all-nlp-collector-statuses", allNlpServiceHealth);
   const holder = document.getElementById('all-nlp-events-list');
   if(!holder) return;
 
@@ -1797,6 +1801,14 @@ function renderAllNlpMonitor(){
       || (webhookWaiting ? `Webhook mode is ready. In Meta for Developers, subscribe the Page to feed changes and set its callback URL to ${escapeNlpText(facebookWebhookUrl)}. This local callback must be exposed through public HTTPS for Meta to reach it.` : '')
       || (waitingForCollector && facebookPollingMode ? 'Facebook Page polling is active (about once per minute); it is not push-real-time. Configure the Meta webhook callback for immediate post notifications.' : '')
       || (waitingForCollector ? 'The Facebook Page collector is running and waiting for new eligible Page posts.' : '');
+  }
+  const xMessage = socialCollectorMessage(allNlpServiceHealth);
+  if(xMessage && !allReportsFeedError && !ingestionNotReady){
+    if(statusLabel) statusLabel.textContent = allNlpServiceHealth.x_last_error ? 'X collector needs attention' : allNlpServiceHealth.x_collector_configured ? 'X polling active' : 'Waiting for X login';
+    if(statusLabel && allNlpServiceHealth.social_browser_collectors) statusLabel.textContent = socialCollectorBadge(allNlpServiceHealth);
+    if(status && allNlpServiceHealth.social_browser_collectors) status.className = 'nlp-live-badge ' + (socialCollectorBadge(allNlpServiceHealth).includes('attention') ? 'attention' : 'live');
+    if(alert){ alert.style.display = 'block'; alert.textContent = xMessage; }
+    if(!ALL_NLP_EVENTS.length){ holder.innerHTML = '<tr><td colspan="7" class="nlp-empty">' + escapeNlpText(xMessage) + '</td></tr>'; return; }
   }
   const count = document.getElementById('all-nlp-results-count');
   if(count) count.textContent = allReportsLastUpdated ? `${ALL_NLP_EVENTS.length} detections across all locations · synced ${allReportsLastUpdated}` : 'Waiting for first sync';
@@ -1917,6 +1929,8 @@ async function fetchReports(){
       id: Number(report.id),
       city: report.city,
       barangay: report.barangay,
+      barangay_feature_id: report.barangay_feature_id,
+      latitude:report.latitude, longitude:report.longitude, street_name:report.street_name,
       severity: String(report.severity || 'medium').toLowerCase(),
       reporter: report.reporter,
       source: report.source,
@@ -1935,6 +1949,10 @@ async function fetchReports(){
 }
 
 function renderReports(){
+  window.dispatchEvent(new CustomEvent('bahaba-reports-map', { detail: {
+    locationId: session?.assigned_location || locationIdForCity(currentCity()),
+    canReport: canCreateModule(session, 'approval_board'), reports: REPORTS,
+  } }));
   renderNlpMonitor();
   renderReportsFilterChips();
   const sel = document.getElementById('reports-barangay-select');
@@ -1942,7 +1960,7 @@ function renderReports(){
   session.activeBarangay = scopeB;
   const cCity = currentCity();
   
-  let list = REPORTS.filter(r => (r.city === cCity || !r.city) && r.barangay === scopeB);
+  let list = REPORTS.filter(r => (r.city === cCity || !r.city) && (!scopeB || scopeB === 'All barangays' || r.barangay === scopeB));
   if(reportsFilter !== 'all') list = list.filter(r=>r.status===reportsFilter);
 
   const canApprove = canApproveModule(session, 'approval_board');
@@ -1960,19 +1978,19 @@ function renderReports(){
   holder.innerHTML = list.map(r=>{
     const rm = riskMeta(r.severity);
     const sourceTag = r.source === 'nlp'
-      ? `<span class="source-tag source-nlp"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="7" width="16" height="12" rx="2.5"/><path d="M9 3v4M15 3v4M9 13h.01M15 13h.01"/></svg>NLP · ${r.platform}</span>`
-      : `<span class="source-tag source-citizen"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/></svg>Resident report</span>`;
+      ? `<span class="source-tag source-nlp"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="7" width="16" height="12" rx="2.5"/><path d="M9 3v4M15 3v4M9 13h.01M15 13h.01"/></svg>NLP · ${escapeNlpText(r.platform || "")}</span>`
+      : `<span class="source-tag source-citizen"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/></svg>${r.source === 'lgu' ? 'LGU report' : 'Resident report'}</span>`;
     return `<div class="report-row">
       <div class="report-thumb">${r.photo ? `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="6" width="18" height="14" rx="2.4"/><circle cx="9" cy="12" r="2.4"/><path d="M14 10l3.5 6H7l2.5-4.2z"/></svg>` : `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 6h16M4 12h16M4 18h10"/></svg>`}</div>
       <div class="report-body">
         <div class="report-top">
-          <span class="report-loc">Brgy. ${r.barangay} (${cCity})</span>
+          <span class="report-loc">Brgy. ${escapeNlpText(r.barangay)} (${escapeNlpText(cCity)})</span>
           <span class="tide-badge ${rm.cls}"><span class="tide-vial"><span class="tide-fill" style="height:${rm.fill};"></span></span>${rm.label}</span>
           <span class="status-pill status-${r.status}">${statusLabel[r.status]}</span>
           ${sourceTag}
         </div>
-        <div class="report-meta">${r.source==='nlp' ? 'Detected by NLP System' : `Reported by ${r.reporter}`} · ${r.time}</div>
-        <div class="report-desc">${r.desc}</div>
+        <div class="report-meta">${r.source==='nlp' ? 'Detected by NLP System' : `Reported by ${escapeNlpText(r.reporter || "")}`} · ${escapeNlpText(r.time || "")}</div>
+        <div class="report-desc">${escapeNlpText(r.desc || "")}</div>
       </div>
       <div class="report-actions">
         ${r.status==='pending' ? `
@@ -2329,4 +2347,190 @@ async function updateAdminLocation(email, locationId){
     await loadAdminAccounts();
     renderUserManager();
   }
+}
+window.addEventListener('bahaba-reports-map-ready', () => { if (session) renderReports(); });
+window.submitLguMapReport = async function(payload) {
+  if (!canCreateModule(session, 'approval_board')) throw new Error('You do not have permission to submit reports.');
+  const response = await fetch(ADMIN_API_URL, {
+    method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({ action: 'report', ...payload }),
+  });
+  const result = await response.json();
+  if (!response.ok || !result.success) throw new Error(result.error || 'Report could not be saved.');
+  const selector = document.getElementById('reports-barangay-select');
+  if (![...selector.options].some((option) => option.value === payload.barangay)) selector.add(new Option(payload.barangay, payload.barangay));
+  selector.value = payload.barangay;
+  session.activeBarangay = payload.barangay;
+  reportsFilter = 'pending';
+  await fetchReports();
+  showToast('Flood report submitted');
+  return result;
+};
+
+async function renderNlpConnections(){
+  const status = document.getElementById('nlp-connections-message');
+  status.textContent = 'Checking collector status...';
+  await refreshNlpEvents();
+  if(!session) return;
+  renderCollectorStatuses('nlp-connections-status', nlpServiceHealth);
+  status.textContent = nlpFeedStatus === 'offline' ? 'The NLP feed is unavailable. Check Reports for connection details.' : 'Current shared collector status. LGU browser login is awaiting the remote browser service.';
+}
+
+const reportTrendsRequests = {};
+async function loadReportTrends(locationId, panelId = 'report-trends-panel', suppliedPayload = null){
+  let panel = document.getElementById(panelId);
+  if(!panel){
+    panel = document.createElement('section'); panel.id = panelId; panel.className = 'panel';
+    document.getElementById('command-metrics').after(panel);
+  }
+  const request = reportTrendsRequests[panelId] = (reportTrendsRequests[panelId] || 0) + 1;
+  panel.replaceChildren();
+  const heading = document.createElement('div'); heading.className = 'panel-head';
+  const title = document.createElement('h3'); title.textContent = 'Flood report history'; heading.append(title); panel.append(heading);
+  const content = document.createElement('div'); content.className = 'panel-body'; panel.append(content);
+  content.textContent = locationId ? 'Loading monthly summaries...' : 'Choose a location to view its flood history.';
+  if(!locationId) return;
+  try {
+    const response = suppliedPayload ? null : await fetch(ADMIN_API_URL+'?action=report-trends&location='+encodeURIComponent(locationId),{credentials:'include',cache:'no-store'});
+    const payload = suppliedPayload || await response.json();
+    if(response && !response.ok) throw Error(payload.error || 'Could not load flood history.');
+    if(request !== reportTrendsRequests[panelId]) return;
+    content.replaceChildren();
+    const note = document.createElement('p'); note.className = 'view-sub';
+    note.textContent = 'Raw reports are removed after 30 days. Monthly totals are kept permanently. Trends combine saved summaries and recent reports, excluding rejected reports. Counts describe reported flooding, not measured flood risk.';
+    content.append(note);
+    const months = new Map(), places = new Map(), seasons = Array(12).fill(0);
+    for(const row of payload.rows || []){
+      if(['rejected','resolved','cancelled'].includes(row.status)) continue;
+      const count = Number(row.report_count) || 0;
+      const month = String(row.report_month).slice(0,7);
+      if(!months.has(month)) months.set(month,{total:0,high:0,medium:0,low:0,verified:0,pending:0});
+      const summary = months.get(month); summary.total += count;
+      if(Object.hasOwn(summary,row.severity) && ['high','medium','low'].includes(row.severity)) summary[row.severity] += count;
+      if(row.status === 'verified') summary.verified += count;
+      else summary.pending += count;
+      const place = String(row.barangay || 'Unspecified barangay');
+      if(!places.has(place)) places.set(place,{total:0,verified:0});
+      places.get(place).total += count;
+      if(row.status === 'verified') places.get(place).verified += count;
+      const monthIndex = Number(month.slice(5))-1;
+      if(monthIndex >= 0 && monthIndex < 12) seasons[monthIndex] += count;
+    }
+    if(!months.size){ const empty=document.createElement('p');empty.textContent='No flood reports recorded for this location yet.';content.append(empty);return; }
+    const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+    const highest = Math.max(...seasons);
+    const peak = document.createElement('p');
+    peak.textContent = 'Peak reporting month(s): '+seasons.flatMap((count,index)=>count === highest ? [monthNames[index]] : []).join(', ')+' ('+highest+' reports per month across recorded years).';
+    content.append(peak);
+    function table(caption,headers,rows){
+      const wrap=document.createElement('div');wrap.style.overflowX='auto';wrap.style.marginTop='18px';
+      const element=document.createElement('table');element.style.width='100%';
+      const label=document.createElement('caption');label.textContent=caption;label.style.textAlign='left';label.style.fontWeight='700';label.style.padding='10px 0';element.append(label);
+      const head=document.createElement('thead'),headRow=document.createElement('tr');
+      headers.forEach(value=>{const cell=document.createElement('th');cell.scope='col';cell.textContent=value;headRow.append(cell)});head.append(headRow);element.append(head);
+      const body=document.createElement('tbody');rows.forEach(values=>{const row=document.createElement('tr');values.forEach(value=>{const cell=document.createElement('td');cell.textContent=String(value);cell.style.padding='10px 8px';row.append(cell)});body.append(row)});element.append(body);wrap.append(element);content.append(wrap);
+    }
+    table('Monthly report totals',['Month','Total','High','Medium','Low','Verified','Pending'],[...months.entries()].sort((a,b)=>b[0].localeCompare(a[0])).map(([month,s])=>[month,s.total,s.high,s.medium,s.low,s.verified,s.pending]));
+    table('Most frequently reported barangays',['Barangay','Reports','Verified'],[...places.entries()].sort((a,b)=>b[1].total-a[1].total).slice(0,10).map(([place,s])=>[place,s.total,s.verified]));
+    const chartTitle=document.createElement('h4');chartTitle.textContent='Reports by calendar month (all recorded years)';content.append(chartTitle);
+    seasons.forEach((count,index)=>{const row=document.createElement('div');row.style.cssText='display:flex;align-items:center;gap:12px;margin:8px 0';const label=document.createElement('span');label.textContent=monthNames[index].slice(0,3);label.style.minWidth='32px';const bar=document.createElement('progress');bar.max=highest;bar.value=count;bar.setAttribute('aria-label',monthNames[index]+': '+count+' reports');bar.style.cssText='flex:1;accent-color:#2479ce';const total=document.createElement('span');total.textContent=String(count);row.append(label,bar,total);content.append(row)});
+  }catch(error){if(request === reportTrendsRequests[panelId]) content.textContent=error.message;}
+}
+
+
+let summaryRequest = 0;
+async function renderSummaryDashboard(){
+  if(!session || !canViewModule(session,'approval_board')) return;
+  const locationSelect=document.getElementById('summary-location');
+  const platform=session.role === 'platform-admin' && canAdminModule(session,'admin_overview');
+  const previousLocation=locationSelect.value;
+  const locations=platform ? SUPPORTED_LOCATIONS : SUPPORTED_LOCATIONS.filter(item=>item.id === session.assigned_location);
+  locationSelect.replaceChildren();
+  locations.forEach(item=>locationSelect.add(new Option(item.name,item.id)));
+  if(platform && locations.some(item=>item.id===previousLocation)) locationSelect.value=previousLocation;
+  if(!platform) locationSelect.value=session.assigned_location || '';
+  locationSelect.hidden=!platform;
+  const locationId=locationSelect.value;
+  const request=++summaryRequest;
+  const status=document.getElementById('summary-status');
+  status.textContent='Loading summaries...';
+  document.getElementById('summary-totals').replaceChildren();
+  document.getElementById('summary-collected').replaceChildren();
+  document.getElementById('summary-history').replaceChildren();
+  document.getElementById('summary-visuals').replaceChildren();
+  if(!locationId){status.textContent='No supported location is assigned to this account.';return;}
+  document.getElementById('summary-location-label').textContent=locationForId(locationId)?.name || 'Your location';
+  try{
+    const response=await fetch(ADMIN_API_URL+'?action=report-trends&location='+encodeURIComponent(locationId),{credentials:'include',cache:'no-store'});
+    const data=await response.json();
+    if(!response.ok) throw Error(data.error || 'Could not load summaries.');
+    if(request !== summaryRequest || !session) return;
+    const yearSelect=document.getElementById('summary-year'), selectedYear=yearSelect.value;
+    const years=[...new Set([...(data.rows||[]),...(data.nlpRows||[])].map(row=>String(row.report_month).slice(0,4)))].sort().reverse();
+    yearSelect.replaceChildren(new Option('All recorded years',''));years.forEach(year=>yearSelect.add(new Option(year,year)));
+    yearSelect.value=years.includes(selectedYear) ? selectedYear : '';
+    const matchesYear=row=>!yearSelect.value || String(row.report_month).startsWith(yearSelect.value);
+    const reports=(data.rows||[]).filter(matchesYear), nlp=(data.nlpRows||[]).filter(matchesYear);
+    const sum=(rows,field,filter=()=>true)=>rows.filter(filter).reduce((total,row)=>total+(Number(row[field])||0),0);
+    const metrics=[['Total reports',sum(reports,'report_count')],['Verified',sum(reports,'report_count',r=>r.status==='verified')],['Pending',sum(reports,'report_count',r=>r.status==='pending')],['Rejected',sum(reports,'report_count',r=>r.status==='rejected')],['High alerts',sum(reports,'report_count',r=>r.status!=='rejected'&&r.severity==='high')],['Medium alerts',sum(reports,'report_count',r=>r.status!=='rejected'&&r.severity==='medium')],['Low alerts',sum(reports,'report_count',r=>r.status!=='rejected'&&r.severity==='low')],['Collected posts',sum(nlp,'total')]];
+    const totals=document.getElementById('summary-totals');
+    metrics.forEach(([label,value])=>{const card=document.createElement('div');card.className='panel';card.style.padding='18px';const title=document.createElement('div');title.textContent=label;title.className='view-sub';const count=document.createElement('strong');count.textContent=value.toLocaleString();count.style.fontSize='28px';card.append(title,count);totals.append(card)});
+    styleSummaryMetrics();
+    renderSummaryVisuals(reports,nlp);
+    await loadReportTrends(locationId,'summary-history',{...data,rows:reports});
+    const redundantChart=document.querySelector('#summary-history .panel-body h4');
+    if(redundantChart){while(redundantChart.nextSibling)redundantChart.nextSibling.remove();redundantChart.remove();}
+    if(request !== summaryRequest) return;
+    const collected=document.getElementById('summary-collected');
+    const info=document.createElement('p');info.className='view-sub';info.textContent='Collected posts are separate from submitted reports and should not be added to report totals. NLP data covers records currently available in the collector database; report history includes permanent monthly summaries.';collected.append(info);
+    const total=sum(nlp,'total'), flood=sum(nlp,'total',r=>r.classification==='Flood');
+    const counts=document.createElement('p');counts.textContent=total+' analyzed posts · '+flood+' classified as flood · '+(total-flood)+' classified as non-flood';collected.append(counts);
+    const groups=new Map();
+    nlp.forEach(row=>{const key=row.report_month+'|'+row.source;if(!groups.has(key)) groups.set(key,{month:String(row.report_month).slice(0,7),source:row.source,total:0,flood:0,high:0,medium:0,low:0,confidence:0});const g=groups.get(key),n=Number(row.total)||0;g.total+=n;g.confidence+=(Number(row.average_confidence)||0)*n;if(row.classification==='Flood'){g.flood+=n;const severity=String(row.severity).toLowerCase();if(severity==='high')g.high+=n;else if(['mid','medium'].includes(severity))g.medium+=n;else if(severity==='low')g.low+=n;}});
+    if(!groups.size){const empty=document.createElement('p');empty.textContent='No collected posts for this location and year.';collected.append(empty);}
+    else{
+      const wrap=document.createElement('div');wrap.style.overflowX='auto';const table=document.createElement('table');table.style.width='100%';
+      const head=document.createElement('thead'),hr=document.createElement('tr');['Month','Platform','Collected','Flood','Non-flood','High','Medium','Low','Avg. confidence'].forEach(label=>{const cell=document.createElement('th');cell.scope='col';cell.textContent=label;hr.append(cell)});head.append(hr);table.append(head);
+      const body=document.createElement('tbody');[...groups.values()].sort((a,b)=>b.month.localeCompare(a.month)).forEach(g=>{const row=document.createElement('tr');[g.month,g.source,g.total,g.flood,g.total-g.flood,g.high,g.medium,g.low,(g.confidence/g.total).toFixed(1)+'%'].forEach(value=>{const cell=document.createElement('td');cell.style.padding='10px 8px';cell.textContent=String(value);row.append(cell)});body.append(row)});table.append(body);wrap.append(table);collected.append(wrap);
+    }
+    status.textContent='Updated '+new Date().toLocaleTimeString()+'. Raw reports: 30 days. Monthly report summaries: permanent.';
+  }catch(error){if(request===summaryRequest)status.textContent=error.message;}
+}
+
+
+function styleSummaryMetrics(){
+  const labels=['All submitted reports','Reviewed and confirmed','Awaiting review','Excluded from flood trends','High severity reports','Medium severity reports','Low severity reports','Social posts analyzed'];
+  const symbols=['↗','✓','◷','−','↑','~','↓','≋'];
+  document.querySelectorAll('#summary-totals > div').forEach((card,index)=>{
+    card.className='analytics-stat analytics-stat-'+index;card.removeAttribute('style');
+    const value=card.querySelector('strong');if(value)value.removeAttribute('style');
+    const icon=document.createElement('span');icon.className='analytics-stat-icon';icon.textContent=symbols[index];icon.setAttribute('aria-hidden','true');
+    const hint=document.createElement('small');hint.textContent=labels[index];card.prepend(icon);card.append(hint);
+  });
+}
+function renderSummaryVisuals(reports,nlp){
+  const host=document.getElementById('summary-visuals');host.replaceChildren();
+  const make=(tag,className,text)=>{const item=document.createElement(tag);if(className)item.className=className;if(text!==undefined)item.textContent=String(text);return item;};
+  const card=(eyebrow,title)=>{const item=make('section','analytics-chart-card');item.append(make('div','analytics-eyebrow',eyebrow),make('h3','',title));host.append(item);return item;};
+  const valid=reports.filter(r=>!['rejected','resolved','cancelled'].includes(r.status));
+  const severities=['high','medium','low'].map(severity=>valid.filter(r=>r.severity===severity).reduce((n,r)=>n+Number(r.report_count||0),0));
+  const total=severities.reduce((a,b)=>a+b,0);
+  const severityCard=card('ALERT BREAKDOWN','Flood severity');
+  const ring=make('div','analytics-ring');const high=total?severities[0]/total*100:0,medium=total?severities[1]/total*100:0;
+  ring.style.background=total?'conic-gradient(#ed7370 0% '+high+'%, #eab75d '+high+'% '+(high+medium)+'%, #52ad99 '+(high+medium)+'% 100%)':'#e5e9ed';
+  ring.setAttribute('role','img');ring.setAttribute('aria-label',severities[0]+' high, '+severities[1]+' medium, '+severities[2]+' low reports');
+  const center=make('div','analytics-ring-center');center.append(make('strong','',total.toLocaleString()),make('small','','reports'));ring.append(center);severityCard.append(ring);
+  const legend=make('div','analytics-ring-legend');['High','Medium','Low'].forEach((label,index)=>{const row=make('div','');const dot=make('i','severity-dot severity-'+index);const copy=make('span','',label);const count=make('strong','',severities[index].toLocaleString());row.append(dot,copy,count);legend.append(row)});severityCard.append(legend);
+  const calendar=Array(12).fill(0),places=new Map();
+  valid.forEach(row=>{const count=Number(row.report_count)||0,index=Number(String(row.report_month).slice(5,7))-1;if(index>=0&&index<12)calendar[index]+=count;const place=row.barangay||'Unspecified barangay';places.set(place,(places.get(place)||0)+count)});
+  const activity=card('REPORT ACTIVITY','Seasonal patterns');
+  const max=Math.max(...calendar,0), names=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const peaks=calendar.flatMap((n,i)=>n===max&&max>0?[names[i]]:[]);
+  const activityNote=make('p','analytics-chart-note',max?peaks.join(', ')+' leads with '+max+' reports.':'No report activity yet.');activity.append(activityNote);
+  const chart=make('div','analytics-month-chart');
+  calendar.forEach((count,index)=>{const column=make('div','analytics-chart-column');const value=make('span','analytics-bar-count',count||'');const track=make('div','analytics-bar-track');const bar=make('div','analytics-month-bar'+(count===max&&count?' is-peak':''));bar.style.height=(max?count/max*100:0)+'%';track.append(bar);column.append(value,track,make('small','',names[index]));column.setAttribute('aria-label',names[index]+': '+count+' reports');column.title=names[index]+': '+count;chart.append(column)});activity.append(chart,make('p','analytics-chart-footnote','Calendar-month totals across the selected reporting period.'));
+  const hotspots=card('LOCATION INSIGHTS','Most reported barangays');
+  const top=[...places.entries()].sort((a,b)=>b[1]-a[1]).slice(0,5);
+  if(!top.length)hotspots.append(make('p','analytics-chart-note','Barangay rankings appear when reports are recorded.'));
+  const ranks=make('div','analytics-ranks');top.forEach(([place,count],index)=>{const row=make('div','analytics-rank');const rank=make('span','analytics-rank-number',String(index+1).padStart(2,'0'));const copy=make('div','analytics-rank-copy');copy.append(make('strong','',place));const track=make('div','analytics-rank-track');const bar=make('span','');bar.style.width=(count/top[0][1]*100)+'%';track.append(bar);copy.append(track);row.append(rank,copy,make('strong','analytics-rank-count',count));ranks.append(row)});hotspots.append(ranks,make('p','analytics-chart-footnote','Report frequency indicates reported activity, not measured flood risk.'));
 }

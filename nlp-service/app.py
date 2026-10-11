@@ -18,6 +18,8 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 from urllib.parse import quote, urlencode, urlparse
 
+import x_agent_reach
+import social_collectors
 import feedparser
 import torch
 from fastapi import Depends, FastAPI, Header, HTTPException, Request as FastAPIRequest
@@ -51,6 +53,7 @@ FACEBOOK_KEYWORDS = list(dict.fromkeys(
     keyword.casefold().strip() for keyword in FACEBOOK_KEYWORDS[:20]
     if isinstance(keyword, str) and keyword.strip()
 )) if isinstance(FACEBOOK_KEYWORDS, list) else []
+X_PROVIDER = os.getenv("X_PROVIDER", "agent-reach").strip().lower()
 XQUIK_API_KEY = os.getenv("XQUIK_API_KEY", "").strip()
 try:
     X_KEYWORDS = json.loads(os.getenv("X_KEYWORDS", '["baha","flood","lubog"]'))
@@ -60,8 +63,8 @@ X_KEYWORDS = list(dict.fromkeys(
     keyword.strip() for keyword in X_KEYWORDS[:20]
     if isinstance(keyword, str) and keyword.strip()
 )) if isinstance(X_KEYWORDS, list) else []
-X_POLL_SECONDS = max(60, int(os.getenv("X_POLL_SECONDS", "300")))
-X_MAX_RESULTS = max(1, min(100, int(os.getenv("X_MAX_RESULTS", "10"))))
+X_POLL_SECONDS = max(60, int(os.getenv("X_POLL_SECONDS", "60")))
+X_MAX_RESULTS = max(1, min(100, int(os.getenv("X_MAX_RESULTS", "30"))))
 X_INITIAL_BACKFILL = max(0, min(X_MAX_RESULTS, int(os.getenv("X_INITIAL_BACKFILL", "10"))))
 X_SEARCH_ENDPOINT = "https://xquik.com/api/v1/x/tweets/search"
 APIFY_API_TOKEN = os.getenv("APIFY_API_TOKEN", "").strip()
@@ -126,7 +129,7 @@ collector_state: dict[str, Any] = {
     "posts_processed": 0,
 }
 x_collector_state: dict[str, Any] = {
-    "configured": bool(XQUIK_API_KEY and X_KEYWORDS),
+    "configured": bool(X_KEYWORDS and (x_agent_reach.configured() if X_PROVIDER == "agent-reach" else XQUIK_API_KEY)),
     "running": False,
     "last_poll": None,
     "last_post_at": None,
@@ -567,6 +570,9 @@ def _build_x_search_query() -> str:
 
 
 def _fetch_x_recent_posts(since_id: str | None) -> dict[str, Any]:
+    if X_PROVIDER == "agent-reach":
+        x_collector_state["configured"] = bool(X_KEYWORDS and x_agent_reach.configured())
+        return x_agent_reach.fetch_posts(X_KEYWORDS, X_MAX_RESULTS)
     params: dict[str, str] = {
         "q": _build_x_search_query(),
         "queryType": "Latest",
@@ -624,7 +630,7 @@ def _x_collector() -> None:
     seen_post_ids = _load_seen_post_ids(x_seen_posts_path)
     since_id = _load_x_since_id()
     x_collector_state["running"] = True
-    logger.info("Xquik latest-post collector started; polling every %s seconds", X_POLL_SECONDS)
+    logger.info("X collector (%s) started; polling every %s seconds", X_PROVIDER, X_POLL_SECONDS)
 
     while not collector_stop.is_set():
         try:
@@ -633,7 +639,7 @@ def _x_collector() -> None:
             x_collector_state["posts_seen"] = len(posts)
             x_collector_state["last_error"] = None
             x_collector_state["last_poll"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-            if not since_id:
+            if not since_id and X_PROVIDER != "agent-reach":
                 posts = posts[:X_INITIAL_BACKFILL]
 
             processing_failed = False
@@ -667,9 +673,10 @@ def _x_collector() -> None:
             logger.warning("Xquik search API connection failed: %s", exc)
         except Exception as exc:
             x_collector_state["last_error"] = str(exc)[:500]
-            logger.exception("Xquik latest-post collector failed")
+            logger.warning("X collector (%s): %s", X_PROVIDER, x_collector_state["last_error"])
 
-        collector_stop.wait(X_POLL_SECONDS)
+        wait_seconds = max(300, X_POLL_SECONDS) if "rate limit" in str(x_collector_state["last_error"]).lower() else X_POLL_SECONDS
+        collector_stop.wait(wait_seconds)
 
     x_collector_state["running"] = False
 
@@ -980,7 +987,13 @@ def _facebook_webhook_worker() -> None:
 
 @app.on_event("startup")
 def start_facebook_collector() -> None:
-    global apify_collector_thread, rss_collector_thread
+    global apify_collector_thread, rss_collector_thread, x_collector_thread
+    collector_stop.clear()
+    social_collectors.start(collector_stop, lambda payload: _detect_and_forward(DetectionRequest(**payload)), _load_seen_post_ids, _save_seen_post_ids)
+    if X_KEYWORDS and (X_PROVIDER == "agent-reach" or x_collector_state["configured"]):
+        collector_stop.clear()
+        x_collector_thread = threading.Thread(target=_x_collector, name="agent-reach-x-collector", daemon=True)
+        x_collector_thread.start()
     if apify_collector_state["configured"]:
         collector_stop.clear()
         apify_collector_thread = threading.Thread(target=_apify_social_collector, name="apify-social-collector", daemon=True)
@@ -1000,6 +1013,9 @@ def start_facebook_collector() -> None:
 @app.on_event("shutdown")
 def stop_facebook_collector() -> None:
     collector_stop.set()
+    social_collectors.shutdown()
+    if x_collector_thread:
+        x_collector_thread.join(timeout=5)
     if apify_collector_thread:
         apify_collector_thread.join(timeout=5)
     if rss_collector_thread:
@@ -1026,6 +1042,7 @@ def health() -> dict[str, Any]:
         collection_mode = "not_configured"
     return {
         "service": "bahaba-flood-nlp",
+        "social_browser_collectors": social_collectors.health(),
         "models_loaded": bool(models),
         "model_archives_configured": all(bool(value) for value in MODEL_ARCHIVES.values()),
         "bahaba_ingest_configured": bool(BAHABA_INGEST_TOKEN),
@@ -1060,6 +1077,8 @@ def health() -> dict[str, Any]:
         "apify_posts_seen_total": apify_collector_state["posts_seen_total"],
         "apify_posts_processed_total": apify_collector_state["posts_processed_total"],
         "apify_platform_errors": apify_collector_state["platform_errors"],
+        "x_provider": X_PROVIDER,
+        "x_poll_seconds": X_POLL_SECONDS,
         "x_collector_configured": x_collector_state["configured"],
         "x_collector_running": x_collector_state["running"],
         "x_keyword_count": len(X_KEYWORDS),

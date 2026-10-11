@@ -1,1 +1,8 @@
 .runtime/
+.vercel
+vercel-dist/
+
+nlp-service/.env
+nlp-service/.state/
+nlp-service/.venv/
+nlp-service/__pycache__/

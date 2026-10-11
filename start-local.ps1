@@ -40,6 +40,13 @@ function Stop-PreviousService([string]$PidFile, [string]$ExpectedPattern) {
         if ($oldPid -gt 0) {
             $oldProcess = Get-CimInstance Win32_Process -Filter "ProcessId = $oldPid" -ErrorAction SilentlyContinue
             if ($oldProcess -and $oldProcess.CommandLine -match $ExpectedPattern) {
+                # Windows venv launchers can leave their Python child listening.
+                $children = Get-CimInstance Win32_Process -Filter "ParentProcessId = $oldPid" -ErrorAction SilentlyContinue
+                foreach ($child in $children) {
+                    if ($child.CommandLine -match $ExpectedPattern) {
+                        Stop-Process -Id $child.ProcessId -Force -ErrorAction SilentlyContinue
+                    }
+                }
                 Stop-Process -Id $oldPid -Force -ErrorAction SilentlyContinue
             }
         }

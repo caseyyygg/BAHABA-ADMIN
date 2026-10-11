@@ -3,7 +3,8 @@
 session_set_cookie_params([
     'httponly' => true,
     'samesite' => 'Lax',
-    'secure' => false,
+    'secure' => (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+        || (($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https'),
     'lifetime' => 30 * 24 * 60 * 60, // 30 days
 ]);
 ini_set('session.gc_maxlifetime', 30 * 24 * 60 * 60); // 30 days
@@ -11,7 +12,15 @@ ini_set('session.cookie_lifetime', 30 * 24 * 60 * 60); // 30 days
 session_start();
 
 header('Content-Type: application/json');
-$allowedOrigins = ['http://localhost:5173', 'http://localhost:5175', 'http://127.0.0.1:5173', 'http://127.0.0.1:5175', 'http://localhost:8001'];
+$allowedOrigins = [
+    'http://localhost:5173',
+    'http://localhost:5175',
+    'http://127.0.0.1:5173',
+    'http://127.0.0.1:5175',
+    'http://localhost:8001',
+    'https://bahaba-app.vercel.app',
+    'https://bahaba-admin.vercel.app',
+];
 $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
 if (in_array($origin, $allowedOrigins, true)) {
     header('Access-Control-Allow-Origin: ' . $origin);
@@ -27,9 +36,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit;
 }
 
-$config = require __DIR__ . '/../BAHABA-official/bahaba-app/api/config.php';
-require_once __DIR__ . '/../BAHABA-official/bahaba-app/api/location_helpers.php';
-$nlpIngestToken = (string) (($config['nlp_ingest_token'] ?? '') ?: (getenv('BAHABA_INGEST_TOKEN') ?: ''));
+$sharedApiDirectory = __DIR__ . '/api';
+if (!is_dir($sharedApiDirectory)) {
+    $sharedApiDirectory = __DIR__ . '/../BAHABA-official/bahaba-app/api';
+}
+if (!is_file($sharedApiDirectory . '/config.php')) {
+    $sharedApiDirectory = dirname(__DIR__, 2) . '/BAHABA-official/bahaba-app/api';
+}
+if (!is_file($sharedApiDirectory . '/config.php')) {
+    http_response_code(500);
+    echo json_encode(['error' => 'Shared API configuration is missing.']);
+    exit;
+}
+$config = require $sharedApiDirectory . '/config.php';
+require_once $sharedApiDirectory . '/location_helpers.php';
+require_once __DIR__ . '/nlp-location.php';
+require_once __DIR__ . '/report-point.php';
+$nlpIngestToken = (string) ($config['nlp_ingest_token'] ?? '');
+if ($nlpIngestToken === '' || $nlpIngestToken === 'replace-with-a-long-random-secret') {
+    $nlpIngestToken = (string) (getenv('BAHABA_INGEST_TOKEN') ?: '');
+}
 $nlpIngestionConfigured = $nlpIngestToken !== '' && $nlpIngestToken !== 'replace-with-a-long-random-secret';
 
 function nlp_service_status(): array
@@ -173,6 +199,8 @@ if (!$pdo->query("SHOW COLUMNS FROM nlp_events LIKE 'post_url'")->fetch()) {
     $pdo->exec('ALTER TABLE nlp_events ADD COLUMN post_url VARCHAR(2048) NULL AFTER confidence_percent');
 }
 
+require_once $sharedApiDirectory . '/report-retention.php';
+
 $method = $_SERVER['REQUEST_METHOD'];
 $path = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
 $input = json_decode(file_get_contents('php://input'), true) ?? [];
@@ -208,6 +236,29 @@ if ($method === 'GET' && $action === 'locations') {
     exit;
 }
 
+if ($method === 'GET' && $action === 'session') {
+    $admin = current_admin($pdo);
+    if (!$admin || ($admin['status'] ?? '') !== 'active') {
+        unset($_SESSION['admin_id']);
+        http_response_code(401);
+        echo json_encode(['error' => 'Admin session required.']);
+        exit;
+    }
+    echo json_encode(['user' => [
+        'id' => (int) $admin['id'],
+        'name' => $admin['name'],
+        'email' => $admin['email'],
+        'role' => $admin['role'],
+        'org' => $admin['org'],
+        'city' => $admin['city'],
+        'assigned_location' => $admin['assigned_location'] ?? null,
+        'barangay' => $admin['barangay'],
+        'status' => $admin['status'],
+        'acls' => $admin['acls'],
+    ]]);
+    exit;
+}
+
 if ($method === 'GET' && $action === 'evacuation-centers') {
     $admin = current_admin($pdo);
     if (!$admin) {
@@ -239,6 +290,28 @@ if ($method === 'GET' && $action === 'evacuation-centers') {
         'barangay_match' => $barangay,
     ]);
     echo json_encode(['location' => $location, 'centers' => $statement->fetchAll()]);
+    exit;
+}
+
+if ($method === 'GET' && $action === 'report-trends') {
+    $admin = current_admin($pdo);
+    if (!$admin) { http_response_code(401); echo json_encode(['error' => 'Admin session required.']); exit; }
+    $location = requested_location($admin, $_GET['location'] ?? $admin['assigned_location'] ?? null);
+    try {
+        bahaba_archive_expired_reports($pdo);
+        
+        $nlp = $pdo->prepare("SELECT DATE_FORMAT(received_at, '%Y-%m-01') AS report_month,
+            source, classification, severity, urgency, COUNT(*) AS total,
+            AVG(confidence_percent) AS average_confidence
+            FROM nlp_events WHERE location_id = :location_id
+            GROUP BY report_month, source, classification, severity, urgency ORDER BY report_month DESC");
+        $nlp->execute(['location_id' => $location['id']]);
+        echo json_encode(['location' => $location, 'rows' => bahaba_report_trends($pdo, $location['id']),
+            'nlpRows' => $nlp->fetchAll(), 'retentionDays' => 30]);
+    } catch (Throwable $error) {
+        error_log('Report trends failed: ' . $error->getMessage());
+        http_response_code(503); echo json_encode(['error' => 'Flood history is temporarily unavailable.']);
+    }
     exit;
 }
 
@@ -326,7 +399,7 @@ if ($method === 'GET' && $action === 'all-reports') {
                 SUM(classification = 'Non-Flood') AS non_flood,
                 SUM(severity = 'High') AS high_severity,
                 AVG(confidence_percent) AS avg_confidence
-         FROM nlp_events WHERE detected_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)"
+         FROM nlp_events WHERE received_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)"
     )->fetch() ?: [];
 
     echo json_encode([
@@ -366,7 +439,7 @@ if ($method === 'GET' && $action === 'nlp-events') {
         exit;
     }
 
-    $where = 'WHERE detected_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)';
+    $where = 'WHERE received_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)';
     $params = [];
     if (!is_platform_admin($admin) || $permission !== 'full') {
         $location = requested_location($admin, $admin['assigned_location'] ?? $admin['city'] ?? null);
@@ -419,6 +492,7 @@ if ($method === 'GET' && $action === 'nlp-events') {
 
     echo json_encode([
         'events' => $eventsStmt->fetchAll(),
+        'nlpService' => nlp_service_status(),
         'stats' => [
             'total' => (int) ($stats['total'] ?? 0),
             'flood' => (int) ($stats['flood'] ?? 0),
@@ -890,6 +964,15 @@ if ($method === 'POST') {
         $locationId = $requestedLocationId !== ''
             ? bahaba_normalize_location_id($requestedLocationId)
             : bahaba_normalize_location_id($city);
+        if ($requestedLocationId === '' && !$locationId) {
+            $locationId = bahaba_nlp_location_id($location !== '' ? $location : $postText);
+        }
+        if ($city === '' && $locationId) {
+            $city = (string) (bahaba_location_by_id($locationId)['city'] ?? '');
+        }
+        if ($barangay === '' && $locationId) {
+            $barangay = bahaba_nlp_barangay($locationId, $postText) ?? '';
+        }
         if ($requestedLocationId !== '' && !$locationId) {
             http_response_code(422);
             echo json_encode(['error' => 'location_id must be one of the supported locations.']);
@@ -1168,6 +1251,77 @@ if ($method === 'POST') {
             exit;
         }
         $location = requested_location($admin, $input['location_id'] ?? $input['city'] ?? null);
+        $barangayFeatureId = trim((string) ($input['barangay_feature_id'] ?? ''));
+        $barangayName = trim((string) ($input['barangay'] ?? ''));
+        if ($barangayFeatureId !== '' || $barangayName !== '') {
+            $geometryPath = __DIR__ . '/map-data/barangays.json';
+            if (!is_file($geometryPath)) {
+                http_response_code(503);
+                echo json_encode(['error' => 'Barangay map data is unavailable.']);
+                exit;
+            }
+            $geometry = json_decode(file_get_contents($geometryPath), true);
+            $matchedFeature = null;
+            foreach ($geometry['features'] ?? [] as $feature) {
+                $properties = $feature['properties'] ?? [];
+                if (($barangayFeatureId !== '' ? (string) ($feature['id'] ?? '') === $barangayFeatureId : ($properties['name'] ?? '') === $barangayName)
+                    && ($properties['city'] ?? '') === ($location['map_city'] ?? '')
+                    && (empty($location['map_municipality']) || ($properties['municipality'] ?? '') === $location['map_municipality'])) {
+                    $matchedFeature = $feature;
+                    break;
+                }
+            }
+            if (!$matchedFeature) {
+                http_response_code(422);
+                echo json_encode(['error' => 'Choose a barangay within your assigned location.']);
+                exit;
+            }
+            $barangayName = $matchedFeature['properties']['name'];
+            $barangayFeatureId = (string) $matchedFeature['id'];
+        }
+        if ($barangayName === '' || strlen($barangayName) > 100) {
+            http_response_code(422);
+            echo json_encode(['error' => 'Choose an affected barangay.']);
+            exit;
+        }
+
+        $latitude = $input['latitude'] ?? null;
+        $longitude = $input['longitude'] ?? null;
+        $streetName = trim((string) ($input['street_name'] ?? ''));
+        if (strlen($streetName)>150 || (($latitude === null) !== ($longitude === null)) || ($streetName !== '' && $latitude === null)) {
+            http_response_code(422); echo json_encode(['error'=>'Choose a map point for the street report and provide a street name under 150 characters.']); exit;
+        }
+        if ($latitude !== null) {
+            if (!is_numeric($latitude) || !is_numeric($longitude) || !is_finite((float)$latitude) || !is_finite((float)$longitude)
+                || abs((float)$latitude)>90 || abs((float)$longitude)>180 || empty($matchedFeature)
+                ) {
+                http_response_code(422); echo json_encode(['error'=>'The report point must be inside the selected barangay in your assigned location.']); exit;
+            }
+        }
+        if ($latitude !== null) {
+            if (!is_file(__DIR__ . '/map-data/lgu-boundaries.json')) {
+                http_response_code(503); echo json_encode(['error'=>'LGU boundary data is unavailable.']); exit;
+            }
+            $boundaries = json_decode(file_get_contents(__DIR__ . '/map-data/lgu-boundaries.json'), true);
+            $scopeBoundary = null;
+            foreach ($boundaries['features'] ?? [] as $boundary) {
+                if (($boundary['id'] ?? '') === $location['id']) { $scopeBoundary = $boundary; break; }
+            }
+            if (!$scopeBoundary || !bahaba_report_point_inside($scopeBoundary['geometry'], (float)$longitude, (float)$latitude)) {
+                http_response_code(422); echo json_encode(['error'=>'The report point must be inside your assigned city or province boundary.']); exit;
+            }
+            // Use a containing barangay when available. Never move a point to its centre or infer the nearest barangay.
+            $containingIds = [];
+            foreach ($geometry['features'] ?? [] as $candidate) {
+                $properties = $candidate['properties'] ?? [];
+                if (($properties['city'] ?? '') !== ($location['map_city'] ?? '')
+                    || (!empty($location['map_municipality']) && ($properties['municipality'] ?? '') !== $location['map_municipality'])) continue;
+                if (bahaba_report_point_inside($candidate['geometry'], (float)$longitude, (float)$latitude)) $containingIds[] = (string)$candidate['id'];
+            }
+            if ($containingIds && !in_array($barangayFeatureId, $containingIds, true)) {
+                http_response_code(422); echo json_encode(['error'=>'Select the barangay containing this report point.']); exit;
+            }
+        }
         $severity = strtolower(trim((string) ($input['severity'] ?? 'medium')));
         $description = trim((string) ($input['description'] ?? ''));
         if (!in_array($severity, ['low', 'medium', 'high'], true) || $description === '') {
@@ -1181,14 +1335,16 @@ if ($method === 'POST') {
             echo json_encode(['error' => 'original_post_url must be a valid http or https URL.']);
             exit;
         }
-        $stmt = $pdo->prepare('INSERT INTO reports (city, barangay, location_id, severity, reporter, source, platform, original_post_url, description, status, photo) VALUES (:city, :barangay, :location_id, :severity, :reporter, :source, :platform, :original_post_url, :description, :status, :photo)');
+        $stmt = $pdo->prepare('INSERT INTO reports (city, barangay, barangay_feature_id, location_id, latitude, longitude, street_name, severity, reporter, source, platform, original_post_url, description, status, photo) VALUES (:city, :barangay, :barangay_feature_id, :location_id, :latitude, :longitude, :street_name, :severity, :reporter, :source, :platform, :original_post_url, :description, :status, :photo)');
         $stmt->execute([
             'city' => $location['city'],
-            'barangay' => trim((string) ($input['barangay'] ?? '')),
+            'barangay' => $barangayName,
+            'barangay_feature_id' => $barangayFeatureId !== '' ? $barangayFeatureId : null,
+            'latitude' => $latitude, 'longitude' => $longitude, 'street_name' => $streetName !== '' ? $streetName : null,
             'location_id' => $location['id'],
             'severity' => $severity,
             'reporter' => $admin['name'],
-            'source' => 'citizen',
+            'source' => 'lgu',
             'platform' => $input['platform'] ?? null,
             'original_post_url' => $originalPostUrl !== '' ? $originalPostUrl : null,
             'description' => $description,
