@@ -51,6 +51,7 @@ if (!is_file($sharedApiDirectory . '/config.php')) {
 $config = require $sharedApiDirectory . '/config.php';
 require_once $sharedApiDirectory . '/location_helpers.php';
 require_once $sharedApiDirectory . '/psgc.php';
+require_once $sharedApiDirectory . '/push.php';
 require_once __DIR__ . '/nlp-location.php';
 require_once __DIR__ . '/report-point.php';
 $nlpIngestToken = (string) ($config['nlp_ingest_token'] ?? '');
@@ -96,7 +97,19 @@ $pdo->exec("CREATE TABLE IF NOT EXISTS admin_users (
 )");
 
 bahaba_ensure_location_schema($pdo);
+bahaba_ensure_psgc_schema($pdo);
+bahaba_ensure_push_schema($pdo);
 bahaba_ensure_column($pdo, 'evacuation_centers', 'created_by_admin_id', 'BIGINT UNSIGNED NULL');
+bahaba_ensure_column($pdo, 'evacuation_centers', 'map_link', "VARCHAR(1000) NOT NULL DEFAULT ''");
+$pdo->exec("CREATE TABLE IF NOT EXISTS barangay_affected_residents (
+    location_id VARCHAR(32) NOT NULL,
+    barangay VARCHAR(150) NOT NULL,
+    affected_residents INT UNSIGNED NOT NULL DEFAULT 0,
+    updated_by_admin_id BIGINT UNSIGNED NULL,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (location_id, barangay)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
 
 function current_admin(PDO $pdo): ?array
 {
@@ -128,7 +141,7 @@ function requested_location(array $admin, mixed $value): array
     }
 
     $locationId = bahaba_normalize_location_id(is_string($value) ? $value : null);
-    if (!$locationId) {
+    if (!$locationId || !bahaba_luzon_location_by_id($locationId)) {
         http_response_code(422);
         echo json_encode(['error' => 'Choose one of the supported locations.']);
         exit;
@@ -215,6 +228,7 @@ if (!empty($_SESSION['admin_id'])) {
 }
 require_once __DIR__ . '/report-management.php';
 require_once __DIR__ . '/team-deployments.php';
+require_once __DIR__ . '/social-accounts.php';
 require_once __DIR__ . '/collected-history.php';
 if ($action === 'forgot-password' && $method === 'POST') {
     bahaba_password_request($pdo,$config,'admin',$input,($config['admin_api_url']??rtrim($config['admin_url']??'http://localhost:8001','/').'/api.php').'?action=reset-password',$sharedApiDirectory.'/vendor');
@@ -251,7 +265,7 @@ if ($method === 'GET' && $action === 'health') {
 }
 
 if ($method === 'GET' && $action === 'locations') {
-    $nationwide = array_map(fn($l) => array_merge($l, ['aliases'=>[], 'map_city'=>$l['city'], 'map_municipality'=>'']), bahaba_psgc_locations());
+    $nationwide = array_map(fn($l) => array_merge($l, ['aliases'=>[], 'map_city'=>$l['city'], 'map_municipality'=>'']), array_values(array_filter(bahaba_psgc_locations(), fn($l) => bahaba_psgc_is_luzon((string)($l['id'] ?? '')))));
     echo json_encode(['locations' => array_merge(bahaba_supported_locations(), $nationwide)]);
     exit;
 }
@@ -294,7 +308,7 @@ if ($method === 'GET' && $action === 'evacuation-centers') {
     $location = requested_location($admin, $_GET['location'] ?? $admin['assigned_location'] ?? $admin['city'] ?? null);
     $barangay = trim((string) ($_GET['barangay'] ?? ''));
     $statement = $pdo->prepare(
-        'SELECT id, location_id, city, barangay, name, address, capacity, evacuees, created_by, created_at,
+        'SELECT id, location_id, city, barangay, name, address, map_link, capacity, evacuees, created_by, created_at,
                 CASE WHEN created_by_admin_id = :admin_id
                           OR (created_by_admin_id IS NULL AND LOWER(TRIM(created_by)) = LOWER(TRIM(:admin_org)))
                      THEN 1 ELSE 0 END AS can_delete
@@ -311,6 +325,18 @@ if ($method === 'GET' && $action === 'evacuation-centers') {
     ]);
     echo json_encode(['location' => $location, 'centers' => $statement->fetchAll()]);
     exit;
+}
+
+if ($method === 'GET' && $action === 'affected-residents') {
+    $admin = current_admin($pdo);
+    if (!$admin) { http_response_code(401); echo json_encode(['error' => 'Admin session required.']); exit; }
+    if (!in_array(strtolower((string) ($admin['acls']['products'] ?? '')), ['full', 'edit', 'view'], true)) { http_response_code(403); echo json_encode(['error' => 'You do not have permission to view evacuation data.']); exit; }
+    $location = requested_location($admin, $_GET['location'] ?? $admin['assigned_location'] ?? $admin['city'] ?? null);
+    $barangay = trim((string) ($_GET['barangay'] ?? ''));
+    if ($barangay === '' || $barangay === 'All barangays') { http_response_code(422); echo json_encode(['error' => 'Choose a barangay.']); exit; }
+    $statement = $pdo->prepare('SELECT affected_residents FROM barangay_affected_residents WHERE location_id = :location_id AND barangay = :barangay');
+    $statement->execute(['location_id' => $location['id'], 'barangay' => $barangay]);
+    echo json_encode(['affected_residents' => (int) ($statement->fetchColumn() ?: 0)]); exit;
 }
 
 if ($method === 'GET' && $action === 'report-trends') {
@@ -341,7 +367,21 @@ if ($method === 'GET' && $action === 'command-center') {
     $location = requested_location($admin, $_GET['location'] ?? $admin['assigned_location'] ?? $admin['city'] ?? null);
     $statement = $pdo->prepare('SELECT * FROM command_centers WHERE location_id = :location_id LIMIT 1');
     $statement->execute(['location_id' => $location['id']]);
-    echo json_encode(['location' => $location, 'commandCenter' => $statement->fetch() ?: null]);
+    $barangay = !is_platform_admin($admin) && !empty($admin['barangay']) && strcasecmp(trim((string) $admin['barangay']), 'All barangays') !== 0
+        ? trim((string) $admin['barangay']) : '';
+    $evacueeSummary = $pdo->prepare(
+        'SELECT COALESCE(SUM(evacuees), 0) AS current_evacuees, COUNT(*) AS evacuation_centers
+         FROM evacuation_centers
+         WHERE location_id = :location_id AND (:barangay_filter = \'\' OR barangay = :barangay_match)'
+    );
+    $evacueeSummary->execute(['location_id' => $location['id'], 'barangay_filter' => $barangay, 'barangay_match' => $barangay]);
+    $affectedSummary = $pdo->prepare("SELECT COALESCE(SUM(affected_residents), 0) FROM barangay_affected_residents WHERE location_id = :location_id AND (:barangay_filter = '' OR barangay = :barangay_match)");
+    $affectedSummary->execute(['location_id' => $location['id'], 'barangay_filter' => $barangay, 'barangay_match' => $barangay]);
+    echo json_encode([
+        'location' => $location,
+        'commandCenter' => $statement->fetch() ?: null,
+        'evacueeSummary' => ($evacueeSummary->fetch() ?: ['current_evacuees' => 0, 'evacuation_centers' => 0]) + ['affected_residents' => (int) $affectedSummary->fetchColumn()],
+    ]);
     exit;
 }
 
@@ -378,7 +418,7 @@ if ($method === 'GET' && $action === 'reports') {
     exit;
 }
 
-if ($method === 'GET' && $action === 'all-reports') {
+if ($method === 'GET' && in_array($action, ['all-reports', 'command-overview'], true)) {
     if (empty($_SESSION['admin_id'])) {
         http_response_code(401);
         echo json_encode(['error' => 'Admin session required.']);
@@ -395,13 +435,13 @@ if ($method === 'GET' && $action === 'all-reports') {
     $canViewReports = in_array(strtolower((string) ($admin['acls']['approval_board'] ?? '')), ['full', 'edit', 'view'], true);
     if (($admin['status'] ?? '') !== 'active' || !$isPlatformAdmin || !$canViewReports) {
         http_response_code(403);
-        echo json_encode(['error' => 'All Reports is restricted to the BAHABA platform admin.']);
+        echo json_encode(['error' => 'All Reports is restricted to the BANTALA platform admin.']);
         exit;
     }
 
     $reports = $pdo->query(
-        'SELECT id, city, barangay, severity, reporter, source, platform, original_post_url, description, status, photo, created_at
-         FROM reports ORDER BY created_at DESC, id DESC LIMIT 500'
+        'SELECT id, city, barangay, latitude, longitude, map_hidden, barangay_feature_id, severity, reporter, source, platform, original_post_url, description, status, photo, created_at
+         FROM reports ORDER BY created_at DESC, id DESC' . ($action === 'all-reports' ? ' LIMIT 500' : '')
     )->fetchAll();
     $nlpEvents = $pdo->query(
         'SELECT id, source, source_post_id, post_text, post_url, location, city, barangay, classification,
@@ -422,7 +462,7 @@ if ($method === 'GET' && $action === 'all-reports') {
         'reports' => $reports,
         'nlpEvents' => $nlpEvents,
         'ingestionConfigured' => $nlpIngestionConfigured,
-        'nlpService' => nlp_service_status(),
+        'nlpService' => $action === 'command-overview' ? null : nlp_service_status(),
         'nlpStats' => [
             'total' => (int) ($nlpStats['total'] ?? 0),
             'flood' => (int) ($nlpStats['flood'] ?? 0),
@@ -570,7 +610,7 @@ if ($method === 'POST') {
         $email = strtolower(trim((string) ($input['email'] ?? '')));
         $password = (string) ($input['password'] ?? '');
         $locationId = bahaba_normalize_location_id((string) ($input['assigned_location'] ?? ''));
-        $location = $locationId ? bahaba_location_by_id($locationId) : null;
+        $location = $locationId ? bahaba_luzon_location_by_id($locationId) : null;
         if ($name === '' || !filter_var($email, FILTER_VALIDATE_EMAIL) || strlen($password) < 8 || !$location) {
             http_response_code(422);
             echo json_encode(['error' => 'Provide a valid name, email, password, and supported LGU location.']);
@@ -658,7 +698,20 @@ if ($method === 'POST') {
         exit;
     }
 
-    if ($action === 'evacuation-center-create') {
+    if ($action === 'affected-residents-save') {
+        $admin = current_admin($pdo);
+        if (!$admin) { http_response_code(401); echo json_encode(['error' => 'Admin session required.']); exit; }
+        if (!in_array(strtolower((string) ($admin['acls']['products'] ?? '')), ['full', 'edit'], true)) { http_response_code(403); echo json_encode(['error' => 'You do not have permission to update evacuation data.']); exit; }
+        $location = requested_location($admin, $input['location_id'] ?? $admin['assigned_location'] ?? $admin['city'] ?? null);
+        $barangay = trim((string) ($input['barangay'] ?? ''));
+        $affected = $parseUnsignedInteger($input['affected_residents'] ?? null);
+        if ($barangay === '' || $barangay === 'All barangays' || strlen($barangay) > 150 || $affected === null || $affected > 1000000000) { http_response_code(422); echo json_encode(['error' => 'Choose a barangay and enter a valid affected resident count.']); exit; }
+        $save = $pdo->prepare('INSERT INTO barangay_affected_residents (location_id,barangay,affected_residents,updated_by_admin_id) VALUES (:location_id,:barangay,:affected,:admin_id) ON DUPLICATE KEY UPDATE affected_residents=VALUES(affected_residents),updated_by_admin_id=VALUES(updated_by_admin_id)');
+        $save->execute(['location_id'=>$location['id'],'barangay'=>$barangay,'affected'=>$affected,'admin_id'=>(int)$admin['id']]);
+        echo json_encode(['success'=>true,'affected_residents'=>$affected]); exit;
+    }
+
+        if ($action === 'evacuation-center-create') {
         $admin = current_admin($pdo);
         if (!$admin) {
             http_response_code(401);
@@ -674,6 +727,7 @@ if ($method === 'POST') {
         $name = trim((string) ($input['name'] ?? ''));
         $barangay = trim((string) ($input['barangay'] ?? ''));
         $address = trim((string) ($input['address'] ?? ''));
+        $mapLink = trim((string) ($input['map_link'] ?? ''));
         $capacity = $parseUnsignedInteger($input['capacity'] ?? null);
         $evacuees = $parseUnsignedInteger($input['evacuees'] ?? 0);
         if ($name === '' || strlen($name) > 255) {
@@ -691,6 +745,11 @@ if ($method === 'POST') {
             echo json_encode(['error' => 'Address must be 500 characters or fewer.']);
             exit;
         }
+        if (strlen($mapLink) > 1000 || ($mapLink !== '' && (!filter_var($mapLink, FILTER_VALIDATE_URL) || !preg_match('~^https?://((www\.)?google\.[a-z.]+/maps|maps\.google\.[a-z.]+|maps\.app\.goo\.gl|goo\.gl/maps)(/|$|\?)~i', $mapLink)))) {
+            http_response_code(422);
+            echo json_encode(['error' => 'Enter a valid Google Maps link.']);
+            exit;
+        }
         if ($capacity === null || $capacity < 1 || $capacity > 1000000) {
             http_response_code(422);
             echo json_encode(['error' => 'Capacity must be a whole number between 1 and 1,000,000.']);
@@ -702,8 +761,8 @@ if ($method === 'POST') {
             exit;
         }
         $statement = $pdo->prepare(
-            'INSERT INTO evacuation_centers (location_id, city, barangay, name, address, capacity, evacuees, created_by, created_by_admin_id)
-             VALUES (:location_id, :city, :barangay, :name, :address, :capacity, :evacuees, :created_by, :created_by_admin_id)'
+            'INSERT INTO evacuation_centers (location_id, city, barangay, name, address, map_link, capacity, evacuees, created_by, created_by_admin_id)
+             VALUES (:location_id, :city, :barangay, :name, :address, :map_link, :capacity, :evacuees, :created_by, :created_by_admin_id)'
         );
         $statement->execute([
             'location_id' => $location['id'],
@@ -711,6 +770,7 @@ if ($method === 'POST') {
             'barangay' => $barangay,
             'name' => $name,
             'address' => $address,
+            'map_link' => $mapLink,
             'capacity' => $capacity,
             'evacuees' => $evacuees,
             'created_by' => trim((string) ($admin['org'] ?? '')) ?: $admin['name'],
@@ -843,6 +903,7 @@ if ($method === 'POST') {
         requested_location($admin, $reportLocation);
         $statement = $pdo->prepare('UPDATE reports SET status = :status WHERE id = :id');
         $statement->execute(['status' => $status, 'id' => $reportId]);
+        if ($status === 'verified') bahaba_send_resident_push($pdo, 'flood', $reportId);
         echo json_encode(['success' => true]);
         exit;
     }
@@ -878,6 +939,7 @@ if ($method === 'POST') {
         requested_location($admin, $announcementLocation);
         $statement = $pdo->prepare('UPDATE announcements SET status = :status WHERE id = :id');
         $statement->execute(['status' => $announcementStatus, 'id' => $announcementId]);
+        if ($announcementStatus === 'published') bahaba_send_resident_push($pdo, 'advisory', $announcementId);
         echo json_encode(['success' => true]);
         exit;
     }
@@ -913,6 +975,7 @@ if ($method === 'POST') {
             'body' => $body,
             'status' => $status,
         ]);
+        if ($status === 'published') bahaba_send_resident_push($pdo, 'advisory', (int) $pdo->lastInsertId());
         http_response_code(201);
         echo json_encode(['success' => true, 'id' => (int) $pdo->lastInsertId()]);
         exit;
@@ -1117,7 +1180,7 @@ if ($method === 'POST') {
                     exit;
                 }
             }
-            $location = $assignedLocation ? bahaba_location_by_id($assignedLocation) : null;
+            $location = $assignedLocation ? bahaba_luzon_location_by_id($assignedLocation) : null;
             $acls = [
                 'admin_overview' => $role === 'platform-admin' ? 'full' : 'view',
                 'announcements' => $role === 'platform-admin' ? 'full' : 'edit',
@@ -1134,7 +1197,7 @@ if ($method === 'POST') {
                 'role' => $role,
                 'city' => $location['city'] ?? 'Metro Manila (All Cities)',
                 'assigned_location' => $assignedLocation,
-                'org' => trim((string) ($input['org'] ?? '')) ?: ($role === 'platform-admin' ? 'BAHABA Platform Admin' : $location['name'] . ' LGU'),
+                'org' => trim((string) ($input['org'] ?? '')) ?: ($role === 'platform-admin' ? 'BANTALA Platform Admin' : $location['name'] . ' LGU'),
                 'barangay' => trim((string) ($input['barangay'] ?? '')),
                 'status' => 'active',
                 'acls' => json_encode($acls),
@@ -1187,7 +1250,7 @@ if ($method === 'POST') {
                     echo json_encode(['error' => 'Choose a supported assigned location for this LGU account.']);
                     exit;
                 }
-                $location = bahaba_location_by_id($locationId);
+                $location = bahaba_luzon_location_by_id($locationId);
                 $update[] = 'city = :city';
                 $update[] = 'assigned_location = :assigned_location';
                 $params['city'] = $location['city'];

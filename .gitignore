@@ -1,4 +1,7 @@
 .runtime/
+.g/
+releases/*.apk
+releases/*.zip
 .vercel
 vercel-dist/
 
@@ -6,3 +9,5 @@ nlp-service/.env
 nlp-service/.state/
 nlp-service/.venv/
 nlp-service/__pycache__/
+
+.vercel

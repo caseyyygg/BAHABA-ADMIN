@@ -3,12 +3,15 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>BAHABA Console — LGU Operations</title>
+<title>BANTALA Console — LGU Operations</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=20261012-report-sources">
+<link rel="stylesheet" href="style.css?v=20261013-affected-residents-input">
 <link rel="stylesheet" href="map-vendor/leaflet.css?v=1.9.4">
+<link rel="stylesheet" href="admin-polish.css?v=20261013-reports-pagination">
+<link rel="icon" href="bahaba-logo.jpg?v=bahaba">
+<link rel="apple-touch-icon" href="bahaba-logo.jpg">
 </head>
 <body>
 
@@ -17,10 +20,10 @@
   <div class="login-card">
     <div class="login-side">
       <div class="brand">
-        <div class="brand-mark"><img src="https://imgur.com/Fb6WdvP.jpeg" alt="BAHABA Logo" class="brand-logo-img"></div>
-        <div><h1>BAHABA Console</h1><div class="role-copy">Platform &amp; LGU Operations</div></div>
+        <div class="brand-mark"><img src="bahaba-logo.jpg" alt="BANTALA Logo" class="brand-logo-img"></div>
+        <div><h1>BANTALA Console</h1><div class="role-copy">Platform &amp; LGU Operations</div></div>
       </div>
-      <div class="quote" id="auth-side-quote">"<b>BAHABA built it, so BAHABA can see and manage all of it.</b> Each LGU account manages only its assigned location. Most updates arrive automatically from BAHABA's NLP system, which reads public social media posts for flood signals."</div>
+      <div class="quote" id="auth-side-quote">"<b>BANTALA built it, so BANTALA can see and manage all of it.</b> Each LGU account manages only its assigned location. Most updates arrive automatically from BANTALA's NLP system, which reads public social media posts for flood signals."</div>
       <svg class="waves" viewBox="0 0 412 120" preserveAspectRatio="none" style="height:100px;">
         <path d="M0,60 C60,30 100,85 160,60 C220,38 260,90 320,68 C360,54 390,62 412,60 L412,120 L0,120 Z" fill="#bcd9f4" opacity=".5"/>
         <path d="M0,75 C70,98 120,45 180,75 C240,105 280,52 340,75 C370,88 395,80 412,75 L412,120 L0,120 Z" fill="#1d6fe0" opacity=".9"/>
@@ -33,7 +36,7 @@
       <div class="auth-view active" id="auth-login">
         <div class="eyebrow">Welcome back</div>
         <h2>Log in to your account</h2>
-        <div class="lead">Use the email and password registered to your BAHABA or LGU account.</div>
+        <div class="lead">Use the email and password registered to your BANTALA or LGU account.</div>
 
         <div class="form-alert" id="login-alert"></div>
 
@@ -65,7 +68,7 @@
       <div class="auth-view" id="auth-register">
         <div class="eyebrow">Register for access</div>
         <h2>Register for console access</h2>
-        <div class="lead">Choose the account type that matches your role. LGU registrations are reviewed by the BAHABA team before activation.</div>
+        <div class="lead">Choose the account type that matches your role. LGU registrations are reviewed by the BANTALA team before activation.</div>
 
         <div class="form-alert" id="register-alert"></div>
 
@@ -83,7 +86,7 @@
                 <div class="type-icon" style="background:var(--navy-800); color:#fff;">
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="14" rx="2.3"/><path d="M8 20h8M12 16v4"/><path d="M8 9.5l2.2 2.2L16 6"/></svg>
                 </div>
-                <div><div class="type-name">BAHABA Team</div><div class="type-desc">Platform admin</div></div>
+                <div><div class="type-name">BANTALA Team</div><div class="type-desc">Platform admin</div></div>
               </div>
             </div>
           </div>
@@ -116,7 +119,7 @@
           </div>
           <div class="mini-note" style="margin-bottom:14px;">Password must be 8–12 characters and can only contain letters, numbers, and special characters (no spaces).</div>
 
-          <div class="mini-note" id="register-note">LGU accounts are activated after the BAHABA team verifies the account and assigned location.</div>
+          <div class="mini-note" id="register-note">LGU accounts are activated after the BANTALA team verifies the account and assigned location.</div>
 
           <button type="submit" class="btn btn-primary" style="width:100%; margin-top:16px;">Submit registration request</button>
         </form>
@@ -146,7 +149,7 @@
           <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2"><path d="M3 7l9 6 9-6"/><rect x="3" y="5" width="18" height="14" rx="2.2"/></svg>
         </div>
         <h2>Check your email</h2>
-        <div class="lead">If <b id="reset-sent-email">that address</b> is registered, check your email for a reset link. If it does not arrive, try again later or contact the BAHABA team.</div>
+        <div class="lead">If <b id="reset-sent-email">that address</b> is registered, check your email for a reset link. If it does not arrive, try again later or contact the BANTALA team.</div>
         <button class="btn btn-outline" style="width:100%; margin-top:10px;" onclick="switchAuth('login')">Back to log in</button>
       </div>
 
@@ -156,7 +159,7 @@
           <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2"><path d="M12 7v5l3 3"/><circle cx="12" cy="12" r="9"/></svg>
         </div>
         <h2>Registration submitted</h2>
-        <div class="lead">Your LGU account for <b id="pending-barangay-name">your barangay</b> is awaiting approval from the BAHABA team. You'll get an email once it's verified and ready to use.</div>
+        <div class="lead">Your LGU account for <b id="pending-barangay-name">your barangay</b> is awaiting approval from the BANTALA team. You'll get an email once it's verified and ready to use.</div>
         <button class="btn btn-outline" style="width:100%; margin-top:10px;" onclick="switchAuth('login')">Back to log in</button>
       </div>
 
@@ -169,8 +172,8 @@
 <div id="app-shell">
   <aside class="sidebar">
     <div class="sb-brand">
-      <div class="brand-mark"><img src="https://imgur.com/Fb6WdvP.jpeg" alt="BAHABA Logo" class="brand-logo-img"></div>
-      <div><div class="sb-brand-name">BAHABA</div><div class="sb-brand-tag">LGU Console</div></div>
+      <div class="brand-mark"><img src="bahaba-logo.jpg" alt="BANTALA Logo" class="brand-logo-img"></div>
+      <div><div class="sb-brand-name">BANTALA</div><div class="sb-brand-tag">LGU Console</div></div>
     </div>
 
     <div class="sb-section-label">Operations</div>
@@ -226,11 +229,6 @@
         <span class="tb-scope" id="tb-scope"></span>
       </div>
       <div class="tb-right">
-        <div class="tb-bell" onclick="toggleDropdown('bell')">
-          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--ink-soft)" stroke-width="1.8"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
-          <span class="tb-badge" id="tb-bell-badge">0</span>
-        </div>
-
         <div class="tb-dropdown-wrap">
           <button class="tb-dropdown-btn" id="module-btn" onclick="toggleDropdown('module')">
             <span id="module-btn-label">Operations Module</span>
@@ -241,7 +239,7 @@
 
         <div class="tb-dropdown-wrap">
           <button class="tb-dropdown-btn" onclick="toggleDropdown('account')">
-            <span id="account-btn-label">BAHABA</span>
+            <span id="account-btn-label">BANTALA</span>
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M6 9l6 6 6-6"/></svg>
           </button>
           <div class="tb-dropdown-panel" id="account-panel"></div>
@@ -303,6 +301,14 @@
         <select class="barangay-select platform-location-select" id="evac-location-select" aria-label="Evacuation location" onchange="changeAdminLocation('evac-location-select')"></select><select class="barangay-select" id="evac-barangay-select" onchange="renderEvacuees()"></select>
       </div>
       <div id="evac-scope-banner"></div>
+      <form class="panel evac-impact-panel" id="evac-affected-form" onsubmit="saveAffectedResidents(event)">
+        <div class="panel-head"><div><h3>Affected residents</h3><div class="view-sub">Enter the confirmed number of flood-affected residents for <strong id="evac-impact-scope">this barangay</strong>.</div></div></div>
+        <div class="panel-body evac-impact-fields">
+          <label class="field">Affected residents<input id="evac-affected-count" type="number" min="0" max="1000000000" required placeholder="Enter resident count"></label>
+          <button class="btn btn-primary btn-sm" type="submit">Save affected residents</button>
+          <div class="form-alert" id="evac-affected-alert" role="status"></div>
+        </div>
+      </form>
       <form class="panel evac-create-panel" id="evac-create-form" onsubmit="createEvacuationCenter(event)">
         <div class="panel-head"><h3>Add an evacuation center</h3></div>
         <div class="panel-body evac-create-fields">
@@ -313,6 +319,7 @@
           <label class="field">Capacity<input id="evac-center-capacity" type="number" min="1" max="1000000" required placeholder="Maximum evacuees"></label>
           <label class="field">Current evacuees<input id="evac-center-count" type="number" min="0" value="0" required></label>
           <label class="field">Address <span class="muted">Optional</span><input id="evac-center-address" maxlength="500" placeholder="Street or landmark"></label>
+          <label class="field">Google Maps link <span class="muted">Optional</span><input id="evac-center-map-link" type="url" maxlength="1000" placeholder="Paste a Google Maps link"><small class="field-hint">Residents can open this link to get directions.</small></label>
           <button class="btn btn-primary btn-sm" type="submit">Add center</button>
           <div class="form-alert" id="evac-create-alert" role="status"></div>
         </div>
@@ -325,7 +332,7 @@
       <div class="view-head">
         <div>
           <h2>Reports</h2>
-          <div class="view-sub">Most reports arrive automatically — BAHABA's NLP system reads public social media posts for flood signals. Verify what's accurate so it reaches the Command Center and citizen app.</div>
+          <div class="view-sub">Most reports arrive automatically — BANTALA's NLP system reads public social media posts for flood signals. Verify what's accurate so it reaches the Command Center and citizen app.</div>
         </div>
         <div class="view-head-actions">
           <select class="barangay-select platform-location-select" id="reports-location-select" aria-label="Reports location" onchange="changeAdminLocation('reports-location-select')"></select>
@@ -351,7 +358,7 @@
 
       <div class="panel nlp-monitor-panel">
         <div class="panel-head nlp-monitor-heading">
-          <div><h3>NLP Live Monitor</h3><div class="nlp-monitor-caption">Social posts classified by BAHABA’s flood detection pipeline.</div></div>
+          <div><h3>NLP Live Monitor</h3><div class="nlp-monitor-caption">Social posts classified by BANTALA’s flood detection pipeline.</div></div>
           <div class="nlp-monitor-actions"><span class="nlp-live-badge connecting" id="nlp-live-badge"><i></i><span id="nlp-live-label">Connecting</span></span><button class="btn btn-outline btn-sm" type="button" onclick="refreshNlpEvents()">Refresh</button></div>
         </div>
         <div class="nlp-monitor-body">
@@ -415,6 +422,18 @@
         </select>
       </div>
       <div class="panel"><div class="panel-body" id="all-reports-list"><div class="empty-state"><div class="t">Loading platform-wide reports…</div></div></div></div>
+      <div class="all-reports-pagination" id="all-reports-pagination" hidden>
+        <span id="all-reports-page-count" role="status" aria-live="polite"></span>
+        <div class="all-reports-page-actions">
+          <label for="all-reports-page-size">Show</label>
+          <select id="all-reports-page-size" onchange="setAllReportsPageSize(this.value)" aria-label="Reports per page">
+            <option value="5">5</option><option value="10">10</option><option value="20">20</option>
+          </select>
+          <span>per page</span>
+          <button class="btn btn-outline btn-sm" id="all-reports-prev" type="button" onclick="changeAllReportsPage(-1)">Previous</button>
+          <button class="btn btn-outline btn-sm" id="all-reports-next" type="button" onclick="changeAllReportsPage(1)">Next</button>
+        </div>
+      </div>
       <div class="all-reports-sync" id="all-reports-sync">Auto-refreshes every 5 seconds</div>
     </section>
 
@@ -454,11 +473,11 @@
     <!-- ============ ACCOUNT MANAGER ============ -->
     <section class="view" data-view="nlp-api" id="view-nlp-api">
       <div class="view-head"><div><h2>NLP API</h2><div class="view-sub">Connect your LGU's social accounts for flood monitoring.</div></div></div>
-      <div class="panel"><div class="panel-head"><h3>Social accounts</h3></div><div style="padding:20px"><p id="nlp-login-setup">Sign in to Facebook, X, or Threads in a private scraper browser. Your saved session will let the collector run without manually copying cookies or ct0. Remote browser login is not available yet; the BAHABA server needs the browser session service first.</p><div class="collector-status-grid"><div class="collector-status-card"><strong>Facebook</strong><span>Remote browser required</span><small>Login will open a private browser for your LGU once the remote browser service is configured.</small><button class="btn" type="button" disabled aria-describedby="nlp-login-setup">Log in to Facebook</button></div><div class="collector-status-card"><strong>X</strong><span>Remote browser required</span><small>Login will open a private browser for your LGU once the remote browser service is configured.</small><button class="btn" type="button" disabled aria-describedby="nlp-login-setup">Log in to X</button></div><div class="collector-status-card"><strong>Threads</strong><span>Remote browser required</span><small>Login will open a private browser for your LGU once the remote browser service is configured.</small><button class="btn" type="button" disabled aria-describedby="nlp-login-setup">Log in to Threads</button></div></div><p>Each LGU needs its own saved scraper session. Complete any verification directly in the platform login screen.</p></div></div>
+      <div class="panel"><div class="panel-head"><h3>Social accounts</h3></div><div style="padding:20px"><p id="nlp-login-setup">Sign in to Facebook, X, or Threads in a private scraper browser. Your saved session will let the collector run without manually copying cookies or ct0. Remote browser login is not available yet; the BANTALA server needs the browser session service first.</p><div class="collector-status-grid"><div class="collector-status-card"><strong>Facebook</strong><span>Remote browser required</span><small>Login will open a private browser for your LGU once the remote browser service is configured.</small><button class="btn" type="button" disabled aria-describedby="nlp-login-setup">Log in to Facebook</button></div><div class="collector-status-card"><strong>X</strong><span>Remote browser required</span><small>Login will open a private browser for your LGU once the remote browser service is configured.</small><button class="btn" type="button" disabled aria-describedby="nlp-login-setup">Log in to X</button></div><div class="collector-status-card"><strong>Threads</strong><span>Remote browser required</span><small>Login will open a private browser for your LGU once the remote browser service is configured.</small><button class="btn" type="button" disabled aria-describedby="nlp-login-setup">Log in to Threads</button></div></div><p>Each LGU needs its own saved scraper session. Complete any verification directly in the platform login screen.</p></div></div>
       <div class="panel" style="margin-top:20px"><div class="panel-head"><h3>Monitoring service</h3><button class="btn" type="button" onclick="renderNlpConnections()">Refresh status</button></div><div style="padding:20px"><p id="nlp-connections-message" role="status"></p><div class="collector-status-grid" id="nlp-connections-status"></div></div></div>
     </section>
     <section class="view" data-view="summary" id="view-summary">
-      <div class="view-head analytics-heading"><div><div class="analytics-eyebrow">BAHABA INSIGHTS</div><h2>Summary &amp; Analytics</h2><div class="view-sub">Understand flood patterns. Prepare your community.</div></div><button type="button" class="btn analytics-refresh" onclick="renderSummaryDashboard()">↻ Refresh data</button></div>
+      <div class="view-head analytics-heading"><div><div class="analytics-eyebrow">BANTALA INSIGHTS</div><h2>Summary &amp; Analytics</h2><div class="view-sub">Understand flood patterns. Prepare your community.</div></div><button type="button" class="btn analytics-refresh" onclick="renderSummaryDashboard()">↻ Refresh data</button></div>
       <div class="analytics-toolbar"><div><span class="analytics-filter-label">LOCATION</span><h3 id="summary-location-label">Your location</h3><select id="summary-location" aria-label="Summary location" onchange="renderSummaryDashboard()"></select></div><div><label class="analytics-filter-label" for="summary-year">REPORTING PERIOD</label><select id="summary-year" onchange="renderSummaryDashboard()"><option value="">All recorded years</option></select></div><div class="analytics-retention"><span class="analytics-status-dot"></span>Monthly summaries preserved</div></div>
       <p id="summary-status" class="analytics-update" role="status"></p>
       <div class="metric-row" id="summary-totals"></div>
@@ -489,7 +508,7 @@
               </div>
               <div class="field">
                 <label>Email</label>
-                <input type="email" id="new-user-email" placeholder="name@bahaba.ph" required>
+                <input type="email" id="new-user-email" placeholder="name@bantala.ph" required>
               </div>
             </div>
             <div class="field-row">
@@ -621,7 +640,7 @@
       <div class="view-head">
         <div>
           <h2>System Logs &amp; Security</h2>
-          <div class="view-sub">Every action taken by BAHABA staff, LGU accounts, and the NLP system, in one audit trail.</div>
+          <div class="view-sub">Every action taken by BANTALA staff, LGU accounts, and the NLP system, in one audit trail.</div>
         </div>
       </div>
 
@@ -675,11 +694,15 @@
 
 <div class="toast" id="toast"></div>
 
-<script src="App.js?v=20261012-workflow2"></script>
+<script src="App.js?v=20261013-bantala-teams"></script>
 <script src="report-manager.js?v=20261012-workflow2"></script>
-<script type="module" src="report-map.mjs?v=20261012-workflow2"></script>
-<script src="collected-history.js?v=20261012-workflow2"></script>
+<script type="module" src="report-map.mjs?v=20261012-severity"></script>
+<script type="module" src="command-live-map.mjs?v=20261017-pages"></script>
+<script src="collected-history.js?v=20261012-toolbar"></script>
 <script src="barangay-status.js?v=20261012-workflow2"></script>
-<script src="team-deployments.js?v=20261012-workflow2"></script>
+<script src="team-deployments.js?v=20261013-bantala-teams"></script>
+<script src="social-accounts.js?v=20261013-session-brand"></script>
+<script src="user-manager.js?v=20261013-reset-admin-filters"></script>
+<script src="admin-confirm.js?v=20261013"></script>
 </body>
 </html>

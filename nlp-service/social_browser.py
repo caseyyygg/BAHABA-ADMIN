@@ -130,7 +130,7 @@ def threads_posts(markup, target):
 def collect(source, target, limit=20):
     from playwright.sync_api import sync_playwright
     target = checked_url(source, target)
-    state = BASE / '.state' / f'{source.lower()}-browser.json'
+    state = Path(__import__('os').environ['BAHABA_SCOPED_BROWSER_STATE']) if __import__('os').environ.get('BAHABA_SCOPED_BROWSER_STATE') else BASE / '.state' / f'{source.lower()}-browser.json'
     if source == 'Facebook':
         try:
             authenticated = facebook_session_ready(json.loads(state.read_text(encoding='utf-8')).get('cookies',[]))

@@ -292,16 +292,7 @@ select.barangay-select{max-width:220px;}
   *{transition-duration:.001ms !important;}
 }
 
-/* ===================== TOPBAR: bell + module/account dropdowns ===================== */
-.tb-bell{
-  width:38px;height:38px;border-radius:50%;border:1px solid var(--line); background:#fff;
-  display:flex; align-items:center; justify-content:center; position:relative; cursor:pointer; flex-shrink:0;
-}
-.tb-bell:hover{border-color:var(--blue-500);}
-.tb-badge{
-  position:absolute; top:-4px; right:-4px; background:var(--coral-600); color:#fff; font-size:10px; font-weight:700;
-  min-width:16px; height:16px; border-radius:999px; display:flex; align-items:center; justify-content:center; padding:0 4px;
-}
+/* ===================== TOPBAR dropdowns ===================== */
 .tb-dropdown-wrap{position:relative;}
 .tb-dropdown-btn{
   display:flex; align-items:center; gap:8px; height:38px; padding:0 14px; border-radius:999px;
@@ -597,3 +588,7 @@ select.barangay-select{max-width:220px;}
 .managed-severity--low{background:#dcfce7;color:#166534;border-color:#bbf7d0}
 .managed-severity--unknown{background:#f1f5f9;color:#475569;border-color:#e2e8f0}
 .managed-source{min-width:145px;font-size:11px}.managed-source-label{display:block;font-weight:600;color:#34516f}.managed-source a{display:block;color:#1565c0;margin-top:3px}.managed-source small{display:block;color:#697b90;margin-top:3px}.managed-source details{margin-top:3px}.managed-source summary{cursor:pointer;color:#1565c0}.managed-actions button:disabled{opacity:.45;cursor:not-allowed}
+
+.evac-create-fields .field-hint{font-size:11px;font-weight:500;text-transform:none;letter-spacing:normal;color:var(--ink-faint);}
+
+.evac-impact-fields{display:flex;align-items:end;gap:14px;padding:18px 20px;flex-wrap:wrap}.evac-impact-fields .field{display:flex;flex-direction:column;gap:6px;min-width:min(280px,100%);color:var(--ink-soft);font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.03em}.evac-impact-fields input{height:40px;border:1.5px solid var(--line);border-radius:9px;padding:0 11px;color:var(--ink);font:500 13px Inter,sans-serif}.evac-impact-fields .form-alert{flex-basis:100%;margin:0}

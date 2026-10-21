@@ -14,6 +14,43 @@ const message = document.getElementById('lgu-map-report-message');
 const collection = (features) => ({ type: 'FeatureCollection', features });
 const severityRank = { low: 1, medium: 2, high: 3 };
 const colors = { low: '#16a34a', medium: '#f59e0b', high: '#dc2626' };
+const severitySelect = document.getElementById('lgu-map-severity');
+function syncDraftSeverity() {
+  const color = colors[severitySelect.value] || colors.medium;
+  pointMarker?.setStyle({fillColor:color});
+  severitySelect.style.setProperty('--severity-color',color);
+}
+severitySelect.addEventListener('change',syncDraftSeverity);
+syncDraftSeverity();
+const reportStyles = document.createElement('style');
+reportStyles.textContent = `
+.lgu-report-map-panel { font-family:Inter,system-ui,sans-serif; }
+.lgu-report-map-panel .panel-head { padding:20px 24px; }
+.lgu-report-map-panel h3 { font-family:inherit; font-size:15px; font-weight:650; }
+.lgu-report-map-panel .view-sub { font-size:12px; line-height:1.7; margin-top:5px; }
+.lgu-report-map-layout { padding:24px; gap:24px; align-items:start; }
+#lgu-report-map { min-height:480px; border:1px solid var(--line); }
+#lgu-map-report-form { min-width:0; gap:8px; }
+#lgu-map-report-form label { margin-top:10px; font-size:12px; font-weight:600; color:var(--ink-soft); }
+#lgu-map-report-form label:first-child { margin-top:0; }
+#lgu-map-report-form input, #lgu-map-report-form select, #lgu-map-report-form textarea { width:100%; min-width:0; padding:12px; border:1px solid var(--line); border-radius:10px; background:var(--mist-50); color:var(--ink); font:400 13px/1.5 Inter,system-ui,sans-serif; }
+#lgu-map-report-form input::placeholder, #lgu-map-report-form textarea::placeholder { color:var(--ink-faint); }
+#lgu-map-report-form input:focus-visible, #lgu-map-report-form select:focus-visible, #lgu-map-report-form textarea:focus-visible { outline:2px solid var(--blue-100); outline-offset:2px; border-color:var(--blue-500); }
+#lgu-map-report-form #lgu-map-severity { border-left:4px solid var(--severity-color); }
+#lgu-report-point-detail { padding:10px 12px; border-radius:10px; background:var(--blue-100); color:var(--ink-soft); overflow-wrap:anywhere; }
+#lgu-map-report-form button { margin-top:8px; min-height:42px; font-size:13px; border-radius:10px; }
+.report-draft-queue { grid-column:1/-1; min-width:0; padding:18px; border:1px solid var(--line); border-radius:12px; background:var(--mist-50); }
+.report-draft-queue[hidden] { display:none; }
+.report-draft-queue > p { font-size:12px; font-weight:600; color:var(--ink-soft); margin-bottom:12px; }
+.report-draft-queue-row { display:flex; align-items:center; gap:16px; padding:12px 14px; border:1px solid var(--line); border-left:3px solid var(--severity-color); border-radius:10px; background:#fff; }
+.report-draft-queue-row + .report-draft-queue-row { margin-top:10px; }
+.report-draft-queue-row span { flex:1; min-width:0; overflow-wrap:anywhere; white-space:pre-wrap; font-size:13px; line-height:1.6; }
+.report-draft-queue-row button { flex-shrink:0; font-size:12px; border-radius:8px; }
+.lgu-map-report-message { padding:0 24px 20px; font-size:12px; line-height:1.6; }
+.lgu-map-report-message:empty { display:none; }
+@media(max-width:850px) { #lgu-report-map { min-height:320px; } .lgu-report-map-layout { padding:18px; gap:18px; } }
+`;
+document.head.append(reportStyles);
 
 function syncLayers() {
   if (!map) return;
@@ -58,7 +95,7 @@ function choosePoint(latlng) {
   chooseBarangay(feature.id,false);
   reportPoint = {latitude:latlng.lat, longitude:latlng.lng};
   if(pointMarker) pointMarker.remove();
-  pointMarker = circleMarker(latlng,{radius:8,color:'#ffffff',weight:3,fillColor:'#dc2626',fillOpacity:1,interactive:false}).addTo(map);
+  pointMarker = circleMarker(latlng,{radius:8,color:'#ffffff',weight:3,fillColor:colors[severitySelect.value] || colors.medium,fillOpacity:1,interactive:false}).addTo(map);
   document.getElementById('lgu-report-point-detail').textContent = 'Report pin: '+latlng.lat.toFixed(6)+', '+latlng.lng.toFixed(6)+' in '+feature.properties.name;
   message.textContent = containingFeature ? '' : 'Pin is inside your LGU boundary. Confirm that the manually selected barangay is correct; this point has no matching barangay polygon.';
 }
@@ -194,13 +231,15 @@ const addReport = document.createElement('button');
 addReport.type = 'button'; addReport.className = 'btn btn-outline'; addReport.textContent = 'Add report to queue';
 submitReports.before(addReport);
 const queue = document.createElement('div');
+queue.className = 'report-draft-queue';
 queue.setAttribute('aria-live', 'polite');
 form.after(queue);
 function renderQueue(){
   queue.replaceChildren();
-  const title = document.createElement('p'); title.textContent = pendingReports.length + ' reports queued'; queue.append(title);
+  queue.hidden = !pendingReports.length;
+  const title = document.createElement('p'); title.textContent = pendingReports.length + ' report' + (pendingReports.length === 1 ? '' : 's') + ' ready to submit'; queue.append(title);
   pendingReports.forEach((report,index) => {
-    const row = document.createElement('div'); row.style.marginBottom = '10px';
+    const row = document.createElement('div'); row.className = 'report-draft-queue-row'; row.style.setProperty('--severity-color',colors[report.severity] || colors.medium);
     const copy = document.createElement('span'); copy.textContent = report.barangay + ' · ' + report.severity + ': ' + report.description;
     const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'btn btn-outline btn-sm'; remove.textContent = 'Remove'; remove.disabled = sendingReports;
     remove.addEventListener('click', () => { pendingReports.splice(index,1); renderQueue(); });

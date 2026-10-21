@@ -20,6 +20,7 @@ from urllib.parse import quote, urlencode, urlparse
 
 import x_agent_reach
 import social_collectors
+import scoped_collectors
 import feedparser
 import torch
 from fastapi import Depends, FastAPI, Header, HTTPException, Request as FastAPIRequest
@@ -989,6 +990,7 @@ def _facebook_webhook_worker() -> None:
 def start_facebook_collector() -> None:
     global apify_collector_thread, rss_collector_thread, x_collector_thread
     collector_stop.clear()
+    scoped_collectors.start(collector_stop, lambda payload: _detect_and_forward(DetectionRequest(**payload)), _load_seen_post_ids, _save_seen_post_ids)
     social_collectors.start(collector_stop, lambda payload: _detect_and_forward(DetectionRequest(**payload)), _load_seen_post_ids, _save_seen_post_ids)
     if X_KEYWORDS and (X_PROVIDER == "agent-reach" or x_collector_state["configured"]):
         collector_stop.clear()
@@ -1043,6 +1045,7 @@ def health() -> dict[str, Any]:
     return {
         "service": "bahaba-flood-nlp",
         "social_browser_collectors": social_collectors.health(),
+        "lgu_social_collectors": scoped_collectors.health(),
         "models_loaded": bool(models),
         "model_archives_configured": all(bool(value) for value in MODEL_ARCHIVES.values()),
         "bahaba_ingest_configured": bool(BAHABA_INGEST_TOKEN),

@@ -206,7 +206,7 @@ async function loadAdminAccounts() {
           password: '********',
           name: user.name,
           initials: (user.name || 'U').split(' ').filter(Boolean).slice(0, 2).map((part) => part[0].toUpperCase()).join('') || 'U',
-          org: user.org || (user.role === 'platform-admin' ? 'BAHABA Platform Admin' : `Brgy. ${user.barangay || 'Barangay'}`),
+          org: user.org || (user.role === 'platform-admin' ? 'BANTALA Platform Admin' : `Brgy. ${user.barangay || 'Barangay'}`),
           role: user.role,
           city: user.city || 'Malabon City',
           assigned_location: user.assigned_location || '',
@@ -257,6 +257,9 @@ let nlpLastUpdated = '';
 let nlpFeedMessage = '';
 let nlpIngestionConfigured = false;
 let ALL_PLATFORM_REPORTS = [];
+let allReportsPage = 1;
+let allReportsPageSize = 5;
+let allReportsFilterSignature = '';
 let ALL_NLP_EVENTS = [];
 let ALL_NLP_STATS = { total: 0, flood: 0, nonFlood: 0, highSeverity: 0, avgConfidence: 0 };
 let allNlpIngestionConfigured = false;
@@ -397,12 +400,12 @@ function scopedBarangays() {
    ============================================================ */
 let AUDIT_LOG = [
   {time:"Aug 20, 2026, 4:12 PM", user:"Elena Villareal (Brgy. Concepcion, Malabon)", module:"Evacuees", action:"Update", description:'Evacuee count for "Concepcion Elementary School" changed to 860.', ip:"IP: 121.54.12.8", status:"success"},
-  {time:"Aug 20, 2026, 4:05 PM", user:"BAHABA NLP System", module:"Reports", action:"Auto-detect", description:'New report auto-filed for Barangay Concepcion from a public Facebook post.', ip:"IP: 10.0.4.9 (automated)", status:"success"},
+  {time:"Aug 20, 2026, 4:05 PM", user:"BANTALA NLP System", module:"Reports", action:"Auto-detect", description:'New report auto-filed for Barangay Concepcion from a public Facebook post.', ip:"IP: 10.0.4.9 (automated)", status:"success"},
   {time:"Aug 20, 2026, 3:47 PM", user:"Elena Villareal (Brgy. Concepcion, Malabon)", module:"Reports", action:"Verify", description:'Report #3 in Barangay Concepcion marked as verified.', ip:"IP: 121.54.12.8", status:"success"},
   {time:"Aug 20, 2026, 3:02 PM", user:"Elena Villareal (Brgy. Concepcion, Malabon)", module:"Announcements", action:"Publish", description:'Announcement "Rescue teams on standby" published.', ip:"IP: 121.54.12.8", status:"success"},
-  {time:"Aug 20, 2026, 2:20 PM", user:"BAHABA NLP System", module:"Reports", action:"Auto-detect", description:'New report auto-filed for Barangay Baritan from public posts on Facebook.', ip:"IP: 10.0.4.9 (automated)", status:"success"},
+  {time:"Aug 20, 2026, 2:20 PM", user:"BANTALA NLP System", module:"Reports", action:"Auto-detect", description:'New report auto-filed for Barangay Baritan from public posts on Facebook.', ip:"IP: 10.0.4.9 (automated)", status:"success"},
   {time:"Aug 20, 2026, 1:15 PM", user:"Elena Villareal (Brgy. Concepcion, Malabon)", module:"Reports", action:"Reject", description:'Report #4 in Barangay Concepcion marked as rejected.', ip:"IP: 121.54.12.8", status:"success"},
-  {time:"Aug 20, 2026, 11:30 AM", user:"Miguel Torres (BAHABA Platform Admin)", module:"Account", action:"Sign in", description:"Platform admin signed in to the console.", ip:"IP: 10.0.4.2", status:"success"}
+  {time:"Aug 20, 2026, 11:30 AM", user:"Miguel Torres (BANTALA Platform Admin)", module:"Account", action:"Sign in", description:"Platform admin signed in to the console.", ip:"IP: 10.0.4.2", status:"success"}
 ];
 
 /* ============================================================
@@ -525,7 +528,7 @@ async function handleLogin(e){
   };
 
   if (acct.status === 'pending') {
-    showAlert('login-alert', 'error', "This account is awaiting approval from the BAHABA team. You'll get an email once it's verified.");
+    showAlert('login-alert', 'error', "This account is awaiting approval from the BANTALA team. You'll get an email once it's verified.");
     return;
   }
 
@@ -678,12 +681,6 @@ function applyPermissions(){
   const allReportsLink = document.querySelector('.sb-link[data-view="all-reports"]');
   if(allReportsLink) allReportsLink.style.display = canAdminModule(session, 'admin_overview') ? 'flex' : 'none';
 
-  document.getElementById('tb-bell-badge').textContent = bellCount();
-}
-
-function bellCount(){
-  if(canAdminModule(session, 'admin_overview')) return Math.min(AUDIT_LOG.length, 99);
-  return REPORTS.filter(r=>r.city===currentCity() && r.barangay===session.barangay && r.status==='pending').length;
 }
 
 function populateBarangaySelects(){
@@ -717,7 +714,7 @@ function go(viewName){
     return;
   }
   if(viewName === 'all-reports' && !canAdminModule(session, 'admin_overview')) {
-    showToast('All Reports is restricted to the BAHABA platform admin');
+    showToast('All Reports is restricted to the BANTALA platform admin');
     return;
   }
   closeAllDropdowns();
@@ -732,7 +729,6 @@ function go(viewName){
   document.getElementById('tb-scope').textContent = canAdminModule(session, 'admin_overview')
     ? `All Metro Manila Cities (${activeCity})`
     : `${session.city} — Brgy. ${session.barangay || session.activeBarangay || 'All barangays'}`;
-  document.getElementById('tb-bell-badge').textContent = bellCount();
 
   if(viewName==='command') renderCommand();
   if(viewName==='evacuees') renderEvacuees();
@@ -787,7 +783,7 @@ function renderUserManager(){
   });
 
   const adminTable = document.getElementById('user-manager-admin-table-body');
-  adminTable.innerHTML = filteredAdmin.map((account) => {
+  adminTable.innerHTML = (window.userManagerPage ? window.userManagerPage(filteredAdmin, 'admin') : filteredAdmin).map((account) => {
     const role = account.acls && account.acls.admin_overview === 'full' ? 'Platform Admin' : 'LGU / Barangay';
     const status = (account.status || 'active') === 'disabled' ? 'Disabled' : 'Active';
     return `
@@ -808,7 +804,7 @@ function renderUserManager(){
   }).join('');
 
   const appTable = document.getElementById('user-manager-app-table-body');
-  appTable.innerHTML = filteredApp.map((user) => {
+  appTable.innerHTML = (window.userManagerPage ? window.userManagerPage(filteredApp, 'app') : filteredApp).map((user) => {
     const appStatus = (user.status || 'pending').toLowerCase() === 'verified' ? 'Verified' : 'Pending';
     return `
       <tr>
@@ -1017,7 +1013,7 @@ async function addUserAccount(event){
   const initials = name.split(' ').filter(Boolean).slice(0, 2).map((part) => part[0].toUpperCase()).join('') || 'U';
   const roleBase = {
     'platform-admin': {
-      org: 'BAHABA Platform Admin',
+      org: 'BANTALA Platform Admin',
       city: 'Metro Manila (All Cities)',
       acls: { admin_overview: 'full', announcements: 'full', products: 'full', approval_board: 'full', approval_board_hr: 'full' }
     },
@@ -1027,7 +1023,7 @@ async function addUserAccount(event){
       acls: { admin_overview: 'view', announcements: 'edit', products: 'edit', approval_board: 'edit', approval_board_hr: 'no_access' }
     }
   }[role] || {
-    org: 'BAHABA Platform Admin',
+    org: 'BANTALA Platform Admin',
     city: 'Metro Manila (All Cities)',
     acls: { admin_overview: 'full', announcements: 'full', products: 'full', approval_board: 'full', approval_board_hr: 'full' }
   };
@@ -1062,7 +1058,7 @@ async function addUserAccount(event){
 
   ACCOUNTS.push({
     email,
-    password,
+    role,
     name,
     initials,
     org: roleBase.org,
@@ -1074,7 +1070,8 @@ async function addUserAccount(event){
   });
 
   document.getElementById('new-user-form').reset();
-  renderUserManager();
+  if (window.resetAdminUserFilters) window.resetAdminUserFilters();
+  else renderUserManager();
   showToast(`${name} was added to the account manager`);
 }
 
@@ -1094,7 +1091,6 @@ function riskMeta(risk){
 function toggleDropdown(which){
   if(which==='module') renderModulePanel();
   if(which==='account') renderAccountPanel();
-  if(which==='bell'){ closeAllDropdowns(); return; }
   const panel = document.getElementById(which==='module' ? 'module-panel' : 'account-panel');
   const isOpen = panel.classList.contains('open');
   closeAllDropdowns();
@@ -1161,9 +1157,18 @@ async function loadCommandCenter(){
   }
 
   try{
-    const response = await fetch(`${ADMIN_API_URL}?action=command-center&location=${encodeURIComponent(locationId)}`, {credentials:'include'});
+    const response = await fetch(`${ADMIN_API_URL}?action=command-center&location=${encodeURIComponent(locationId)}`, {credentials:'include', cache:'no-store'});
     const data = await response.json().catch(() => ({}));
     if(!response.ok) throw new Error(data.error || 'Command Center information could not be loaded.');
+    const currentEvacuees = Number(data.evacueeSummary?.current_evacuees);
+    const evacuationCenters = Number(data.evacueeSummary?.evacuation_centers);
+    const affectedResidents = Number(data.evacueeSummary?.affected_residents);
+    const evacueesMetric = document.querySelector('[data-metric="current-evacuees"]');
+    const centersMetric = document.querySelector('[data-metric="evacuation-centers"]');
+    const affectedMetric = document.querySelector('[data-metric="affected-residents"]');
+    if (evacueesMetric && Number.isFinite(currentEvacuees)) evacueesMetric.textContent = currentEvacuees.toLocaleString();
+    if (centersMetric && Number.isFinite(evacuationCenters)) centersMetric.textContent = evacuationCenters.toLocaleString();
+    if (affectedMetric && Number.isFinite(affectedResidents)) affectedMetric.textContent = affectedResidents.toLocaleString();
     const center = data.commandCenter || {};
     const fields = {
       name: 'command-center-name',
@@ -1258,9 +1263,9 @@ function renderCommand(){
 
   const metricsKnown=scope.some(barangay=>Boolean(cityData[barangay]));
   document.getElementById('command-metrics').innerHTML = `
-    <div class="metric-card"><div class="metric-num danger">${metricsKnown ? totals.affected.toLocaleString() : "&mdash;"}</div><div class="metric-label">Affected Residents</div></div>
-    <div class="metric-card"><div class="metric-num">${metricsKnown ? totals.evacuees.toLocaleString() : "&mdash;"}</div><div class="metric-label">Current Evacuees</div></div>
-    <div class="metric-card"><div class="metric-num">${metricsKnown ? totals.centers : "&mdash;"}</div><div class="metric-label">Evacuation Centers</div></div>
+    <div class="metric-card"><div class="metric-num danger" data-metric="affected-residents">&mdash;</div><div class="metric-label">Affected Residents</div></div>
+    <div class="metric-card"><div class="metric-num" data-metric="current-evacuees">&mdash;</div><div class="metric-label">Current Evacuees</div></div>
+    <div class="metric-card"><div class="metric-num" data-metric="evacuation-centers">&mdash;</div><div class="metric-label">Evacuation Centers</div></div>
     <div class="metric-card"><div class="metric-num">${metricsKnown ? totals.teams : "&mdash;"}</div><div class="metric-label">Teams Deployed</div></div>
   `;
 
@@ -1302,6 +1307,10 @@ function renderEvacuees(){
 
   const canEditCount = canCreateModule(session, 'products');
   document.getElementById('evac-create-form').hidden = !canEditCount;
+  document.getElementById('evac-affected-count').readOnly = !canEditCount;
+  document.querySelector('#evac-affected-form button[type="submit"]').hidden = !canEditCount;
+  document.getElementById('evac-impact-scope').textContent = 'Barangay '+b+', '+cCity;
+  loadAffectedResidents(currentAdminLocationId(), b);
   document.getElementById('evac-scope-banner').innerHTML = canAdminModule(session, 'products') ? `
     <div class="locked-banner">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 21V8l9-5 9 5v13"/><path d="M9 21v-6h6v6"/></svg>
@@ -1315,6 +1324,43 @@ function renderEvacuees(){
   const grid = document.getElementById('evac-grid');
   grid.innerHTML = '<div class="empty-state">Loading evacuation centers…</div>';
   loadEvacuationCenters(cCity, b);
+}
+
+async function loadAffectedResidents(locationId, barangay){
+  const input = document.getElementById('evac-affected-count');
+  const alert = document.getElementById('evac-affected-alert');
+  if (!locationId || !barangay || barangay === 'All barangays') { input.value = ''; return; }
+  const params = new URLSearchParams({action:'affected-residents',location:locationId,barangay});
+  try {
+    const response = await fetch(`${ADMIN_API_URL}?${params}`, {credentials:'include',cache:'no-store'});
+    const data = await response.json().catch(()=>({}));
+    if (!response.ok) throw new Error(data.error || 'Affected resident count could not be loaded.');
+    if (document.getElementById('evac-barangay-select').value === barangay) input.value = String(data.affected_residents ?? 0);
+    alert.textContent = '';
+    alert.className = 'form-alert';
+  } catch(error) {
+    alert.textContent = error.message;
+    alert.className = 'form-alert error show';
+  }
+}
+
+async function saveAffectedResidents(event){
+  event.preventDefault();
+  const input = document.getElementById('evac-affected-count');
+  const alert = document.getElementById('evac-affected-alert');
+  const button = event.currentTarget.querySelector('button[type="submit"]');
+  const payload = {action:'affected-residents-save',location_id:currentAdminLocationId(),barangay:document.getElementById('evac-barangay-select').value,affected_residents:Number(input.value)};
+  button.disabled = true;
+  try {
+    const response = await fetch(ADMIN_API_URL,{method:'POST',credentials:'include',headers:{'Content-Type':'application/json',Accept:'application/json'},body:JSON.stringify(payload)});
+    const data = await response.json().catch(()=>({}));
+    if (!response.ok) throw new Error(data.error || 'Affected resident count could not be saved.');
+    alert.textContent = 'Affected resident count saved for this barangay.';
+    alert.className = 'form-alert success show';
+  } catch(error) {
+    alert.textContent = error.message;
+    alert.className = 'form-alert error show';
+  } finally { button.disabled = false; }
 }
 
 async function loadEvacuationCenters(city, barangay){
@@ -1362,6 +1408,7 @@ function renderEvacuationCenterCards(city, barangay){
       <div class="cap-bar-track"><div class="cap-bar-fill ${fillCls}" style="width:${pct}%;"></div></div>
       <div class="evac-nums"><span>${evacuees.toLocaleString()} evacuees</span><span>${capacity.toLocaleString()} capacity</span></div>
       ${center.address ? `<div class="evac-loc">${escapeNlpText(center.address)}</div>` : ''}
+      ${center.map_link ? `<a class="evac-map-link" href="${escapeNlpText(center.map_link)}" target="_blank" rel="noopener noreferrer">Open in Google Maps ↗</a>` : ''}
       <div class="evac-loc">Added by ${escapeNlpText(center.created_by || 'LGU')}</div>
       ${canEditCount ? `
       <div class="evac-edit-row">
@@ -1386,6 +1433,7 @@ async function createEvacuationCenter(event){
     barangay: document.getElementById('evac-center-barangay').value,
     name: document.getElementById('evac-center-name').value.trim(),
     address: document.getElementById('evac-center-address').value.trim(),
+    map_link: document.getElementById('evac-center-map-link').value.trim(),
     capacity: Number(document.getElementById('evac-center-capacity').value),
     evacuees: Number(document.getElementById('evac-center-count').value),
   };
@@ -1652,7 +1700,7 @@ async function refreshNlpEvents(){
     nlpFeedStatus = 'offline';
     nlpIngestionConfigured = false;
     nlpFeedMessage = error.status === 401
-      ? 'Admin session is missing or expired. Sign in again through the BAHABA-ADMIN site.'
+      ? 'Admin session is missing or expired. Sign in again through the BANTALA-ADMIN site.'
       : error.status === 403
         ? 'Your account does not have permission to view the NLP monitor. Ask a platform administrator to check your Reports access.'
         : error.status
@@ -1852,6 +1900,8 @@ function renderAllReports(){
   const query = (document.getElementById('all-reports-search')?.value || '').trim().toLowerCase();
   const sourceFilter = document.getElementById('all-reports-source')?.value || 'all';
   const statusFilter = document.getElementById('all-reports-status')?.value || 'all';
+  const filterSignature = JSON.stringify([query, sourceFilter, statusFilter]);
+  if(filterSignature !== allReportsFilterSignature){ allReportsFilterSignature = filterSignature; allReportsPage = 1; }
   const rows = ALL_PLATFORM_REPORTS.filter(report => {
     const matchesSource = sourceFilter === 'all' || report.source === sourceFilter;
     const matchesStatus = statusFilter === 'all' || report.status === statusFilter;
@@ -1859,6 +1909,17 @@ function renderAllReports(){
       .join(' ').toLowerCase();
     return matchesSource && matchesStatus && (!query || haystack.includes(query));
   });
+  const pageCount = Math.max(1, Math.ceil(rows.length / allReportsPageSize));
+  allReportsPage = Math.min(pageCount, Math.max(1, allReportsPage));
+  const pageRows = rows.slice((allReportsPage - 1) * allReportsPageSize, allReportsPage * allReportsPageSize);
+  const pagination = document.getElementById('all-reports-pagination');
+  if(pagination){
+    pagination.hidden = rows.length === 0;
+    document.getElementById('all-reports-page-count').textContent = 'Page ' + allReportsPage + ' of ' + pageCount + ' · ' + rows.length.toLocaleString() + ' reports';
+    document.getElementById('all-reports-page-size').value = String(allReportsPageSize);
+    document.getElementById('all-reports-prev').disabled = allReportsPage <= 1;
+    document.getElementById('all-reports-next').disabled = allReportsPage >= pageCount;
+  }
 
   const total = ALL_PLATFORM_REPORTS.length;
   const newSignals = ALL_PLATFORM_REPORTS.filter(report => report.status === 'new' || report.status === 'pending').length;
@@ -1889,7 +1950,7 @@ function renderAllReports(){
     return;
   }
 
-  holder.innerHTML = rows.map(report => {
+  holder.innerHTML = pageRows.map(report => {
     const risk = riskMeta(report.severity);
     const location = `${report.barangay ? `Brgy. ${report.barangay} · ` : ''}${report.city}`;
     const confidence = report.confidence === null ? '' : ` · ${Number(report.confidence).toFixed(1)}% confidence`;
@@ -1913,6 +1974,20 @@ function renderAllReports(){
       </div>
     </div>`;
   }).join('');
+}
+
+function changeAllReportsPage(delta){
+  allReportsPage += delta;
+  renderAllReports();
+  document.getElementById('all-reports-pagination')?.scrollIntoView({block:'nearest',behavior:'smooth'});
+}
+
+function setAllReportsPageSize(value){
+  const size = Number(value);
+  if(![5,10,20].includes(size)) return;
+  allReportsPageSize = size;
+  allReportsPage = 1;
+  renderAllReports();
 }
 
 function renderReportsFilterChips(){
@@ -2003,8 +2078,6 @@ function renderReports(){
         <div class="report-desc">${escapeNlpText(r.desc || "")}</div>
       </div>
       <div class="report-actions">
-        ${canApprove ? `<button class="btn btn-outline btn-sm" onclick="manageReport(${r.id},'${r.map_hidden ? 'show' : 'hide'}')">${r.map_hidden ? 'Show on map' : 'Hide from map'}</button>` : ''}
-        ${canApproveModule(session, 'approval_board') ? `<button class="btn btn-outline btn-sm report-delete-button" onclick="manageReport(${r.id},'delete')">Delete report</button>` : ''}
         ${r.status==='pending' ? `
           ${canReject ? `<button class="btn btn-outline btn-sm" onclick="setReportStatus(${r.id},'rejected')">Reject</button>` : ''}
           ${canApprove ? `<button class="btn btn-primary btn-sm" onclick="setReportStatus(${r.id},'verified')">Verify</button>` : ''}
@@ -2557,7 +2630,7 @@ function renderSummaryVisuals(reports,nlp,targetHost=null){
 // Persist map visibility separately from review status; preserve existing delete permissions.
 async function manageReport(id, action){
   if(!['hide','show','delete'].includes(action))return;
-  if(action==='delete' && !window.confirm('Delete report #'+id+' and its map pin? This removes the report from report lists and totals.'))return;
+  if(action==='delete' && !await window.adminConfirm({title:'Delete report #'+id+' and its map pin?',message:'This removes the report from report lists and totals.',confirmLabel:'Delete report',danger:true}))return;
   try {
     const tokenResponse=await fetch(ADMIN_API_URL+'?action=report-management-session',{credentials:'include',cache:'no-store'});
     const token=await tokenResponse.json();if(!tokenResponse.ok)throw Error(token.error||'Sign in again.');

@@ -27,8 +27,8 @@ def build_query(keywords):
     return f'({terms}) (Navotas OR Bulacan OR Marikina OR Pampanga OR Malolos) -filter:retweets since:{since}'
 
 
-def fetch_posts(keywords, count):
-    creds = credentials()
+def fetch_posts(keywords, count, scoped_credentials=None, scoped_location=None):
+    creds = credentials() if scoped_credentials is None else scoped_credentials
     if not all(creds.values()):
         raise RuntimeError('Waiting for X login: add TWITTER_AUTH_TOKEN and TWITTER_CT0 locally in nlp-service/.env.')
     if creds['TWITTER_AUTH_TOKEN'] == creds['TWITTER_CT0']:
@@ -40,7 +40,8 @@ def fetch_posts(keywords, count):
         raise RuntimeError('Agent-Reach X environment is missing; set X_AGENT_REACH_PYTHON locally.')
     env = dict(os.environ, **creds, PYTHONIOENCODING='utf-8')
     try:
-        result = subprocess.run([python, str(Path(__file__).resolve()), '--search', build_query(keywords), str(count)],
+        query = build_query(keywords) if scoped_location is None else '(' + ' OR '.join('"' + str(word).replace('"', '').replace('\\', '') + '"' for word in keywords) + ') "' + scoped_location.replace('"', '') + '" -filter:retweets since:' + (datetime.now(timezone.utc) - timedelta(hours=24)).strftime('%Y-%m-%d')
+        result = subprocess.run([python, str(Path(__file__).resolve()), '--search', query, str(count)],
                                 env=env, capture_output=True, text=True, encoding='utf-8', timeout=90,
                                 creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
     except subprocess.TimeoutExpired:
