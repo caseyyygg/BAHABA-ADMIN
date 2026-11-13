@@ -73,7 +73,6 @@
 #view-all-reports .all-report-row .nlp-original-link, #view-all-reports .all-report-row .nlp-no-link { display:inline-flex; margin-top:9px; font-size:11px; }
 #view-all-reports .all-reports-sync { display:flex; justify-content:space-between; flex-wrap:wrap; gap:6px 14px; margin:8px 4px 0; color:var(--ink-faint); font-size:10px; line-height:1.5; }
 #view-all-reports .all-reports-sync .all-reports-error { color:#a63d35; }
-#view-all-reports .all-reports-sync .all-reports-demo { color:#8a5b13; }
 .all-reports-pagination { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; margin-top:12px; padding:13px 15px; border:1px solid var(--line); border-radius:13px; background:#fff; color:var(--ink-soft); font:500 11px/1.5 Inter,system-ui,sans-serif; }
 .all-reports-pagination[hidden] { display:none; }
 .all-reports-page-actions { display:flex; align-items:center; flex-wrap:wrap; gap:8px; }

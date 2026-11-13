@@ -5,7 +5,7 @@ const outputDirectory = path.join(__dirname, 'vercel-dist');
 fs.rmSync(outputDirectory, { recursive: true, force: true });
 fs.mkdirSync(outputDirectory, { recursive: true });
 
-for (const file of ['index.html', 'App.js', 'style.css', 'psgc-registry.json', 'report-manager.js', 'collected-history.js', 'barangay-status.js', 'team-deployments.js']) {
+for (const file of ['index.html', 'App.js', 'style.css', 'psgc-registry.json', 'report-manager.js', 'admin-flood-signals.mjs', 'collected-history.js', 'barangay-status.js', 'team-deployments.js']) {
   fs.copyFileSync(path.join(__dirname, file), path.join(outputDirectory, file));
 }
 

@@ -95,16 +95,7 @@ const METRO_MANILA_DATA = {
   }
 };
 
-let REPORTS = [
-  {id:1, city:"Malabon City", barangay:"Concepcion", severity:"high", reporter:"NLP System", source:"nlp", platform:"Facebook", time:"11 min ago", desc:"Detected a public post describing knee-level water along Rizal St., rising fast.", status:"pending", photo:true},
-  {id:2, city:"Malabon City", barangay:"Concepcion", severity:"medium", reporter:"NLP System", source:"nlp", platform:"X (Twitter)", time:"38 min ago", desc:"Detected a public post mentioning ankle-deep water near the covered market entrance.", status:"pending", photo:false},
-  {id:3, city:"Malabon City", barangay:"Concepcion", severity:"high", reporter:"A. Dizon", source:"citizen", time:"1 hr ago", desc:"Street flooding blocking the main road to the barangay hall.", status:"verified", photo:false},
-  {id:4, city:"Malabon City", barangay:"Concepcion", severity:"low", reporter:"R. Santos", source:"citizen", time:"2 hr ago", desc:"Minor pooling near the basketball court, receding.", status:"rejected", photo:false},
-  {id:5, city:"Malabon City", barangay:"Concepcion", severity:"medium", reporter:"NLP System", source:"nlp", platform:"Facebook", time:"3 hr ago", desc:"Detected a public post about water rising near the creek behind Purok 3.", status:"pending", photo:true},
-  {id:6, city:"Malabon City", barangay:"Baritan", severity:"high", reporter:"NLP System", source:"nlp", platform:"Facebook", time:"46 min ago", desc:"Detected multiple public posts reporting street flooding near the barangay hall.", status:"pending", photo:true},
-  {id:7, city:"Malabon City", barangay:"Baritan", severity:"medium", reporter:"M. Cruz", source:"citizen", time:"2 hr ago", desc:"Water rising near the covered court, ankle-deep.", status:"verified", photo:false},
-  {id:8, city:"Quezon City", barangay:"Batasan Hills", severity:"high", reporter:"NLP System", source:"nlp", platform:"Facebook", time:"15 min ago", desc:"Water level rising rapidly near the river bank.", status:"pending", photo:true}
-];
+let REPORTS = [];
 
 let ANNOUNCEMENTS = [
   {id:1, city:"Malabon City", barangay:"Concepcion", title:"Evacuate low-lying areas near Rizal St.", body:"Water levels are rising quickly. Residents in low-lying sections should move to Concepcion Elementary School now.", status:"published", date:"Today, 2:14 PM"},
@@ -264,7 +255,6 @@ let ALL_NLP_EVENTS = [];
 let ALL_NLP_STATS = { total: 0, flood: 0, nonFlood: 0, highSeverity: 0, avgConfidence: 0 };
 let allNlpIngestionConfigured = false;
 let allNlpServiceHealth = {};
-let allReportsDemoFallback = false;
 let allReportsLastUpdated = '';
 let allReportsFeedError = '';
 
@@ -384,8 +374,8 @@ function currentAdminLocationId(){
   return session?.role === 'platform-admin' && canAdminModule(session,'admin_overview')
     ? activeAdminLocationId || locationIdForCity(currentCity()) : session?.assigned_location || locationIdForCity(currentCity());
 }
-function scopedBarangays() {
-  if(session?.role !== 'platform-admin' && session?.barangay && session.barangay !== 'All barangays') return [session.barangay];
+function scopedBarangays(includeAssignedBarangay = true) {
+  if(includeAssignedBarangay && session?.role !== 'platform-admin' && session?.barangay && session.barangay !== 'All barangays') return [session.barangay];
   const id=currentAdminLocationId();
   const legacyId=({'1380900000':'navotas','1380700000':'marikina','0301410000':'malolos'})[id] || id;
   const location=locationForId(legacyId) || locationForId(id) || {};
@@ -685,9 +675,17 @@ function applyPermissions(){
 
 function populateBarangaySelects(){
   const list = scopedBarangays();
+  const reportsBarangays = scopedBarangays(false);
   const locationSelect=document.getElementById('evac-location-select');
   if(locationSelect){locationSelect.hidden=session?.role!=='platform-admin';locationSelect.value=currentAdminLocationId();}
-  ['evac-barangay-select','reports-barangay-select','ann-barangay-select'].forEach(id=>{
+  const reportsBarangaySelect = document.getElementById('reports-barangay-select');
+  if(reportsBarangaySelect){
+    reportsBarangaySelect.innerHTML = '<option value="All barangays">All barangays</option>' + reportsBarangays.map(b=>`<option value="${escapeNlpText(b)}">Brgy. ${escapeNlpText(b)}</option>`).join('');
+    reportsBarangaySelect.value = 'All barangays';
+    reportsBarangaySelect.disabled = false;
+    reportsBarangaySelect.style.display = '';
+  }
+  ['evac-barangay-select','ann-barangay-select'].forEach(id=>{
     const el = document.getElementById(id);
     if (!el) return;
     el.innerHTML = list.map(b=>`<option value="${escapeNlpText(b)}">Brgy. ${escapeNlpText(b)}</option>`).join('');
@@ -726,9 +724,11 @@ function go(viewName){
 
   const titles = {summary:'Summary & Analytics', 'nlp-api':'NLP API', command:'Command Center', evacuees:'Evacuees', reports:'Reports', 'all-reports':'All Reports', announcements:'Announcements', logs:'System Logs & Security', users:'Account Manager'};
   document.getElementById('tb-title').textContent = titles[viewName];
-  document.getElementById('tb-scope').textContent = canAdminModule(session, 'admin_overview')
-    ? `All Metro Manila Cities (${activeCity})`
-    : `${session.city} — Brgy. ${session.barangay || session.activeBarangay || 'All barangays'}`;
+  document.getElementById('tb-scope').textContent = viewName === 'reports'
+    ? `${currentCity()} — All barangays`
+    : canAdminModule(session, 'admin_overview')
+      ? `All Metro Manila Cities (${activeCity})`
+      : `${session.city} — Brgy. ${session.barangay || session.activeBarangay || 'All barangays'}`;
 
   if(viewName==='command') renderCommand();
   if(viewName==='evacuees') renderEvacuees();
@@ -1398,6 +1398,7 @@ function renderEvacuationCenterCards(city, barangay){
   document.getElementById('evac-grid').innerHTML = centers.map((center)=>{
     const capacity = Number(center.capacity);
     const evacuees = Number(center.evacuees);
+    const hasCapacity = capacity > 0;
     const pct = capacity > 0 ? Math.min(100, Math.round((evacuees/capacity)*100)) : 0;
     const fillCls = pct>=90 ? 'full' : pct>=65 ? 'warn' : '';
     return `<div class="evac-card">
@@ -1405,12 +1406,12 @@ function renderEvacuationCenterCards(city, barangay){
         <div><div class="evac-title">${escapeNlpText(center.name)}</div><div class="evac-loc">Brgy. ${escapeNlpText(center.barangay)}, ${escapeNlpText(city)}</div></div>
         ${Number(center.can_delete) === 1 ? `<button class="btn btn-outline btn-sm evac-delete-btn" onclick="deleteEvacuationCenter(${Number(center.id)})">Delete</button>` : ''}
       </div>
-      <div class="cap-bar-track"><div class="cap-bar-fill ${fillCls}" style="width:${pct}%;"></div></div>
-      <div class="evac-nums"><span>${evacuees.toLocaleString()} evacuees</span><span>${capacity.toLocaleString()} capacity</span></div>
+      ${hasCapacity ? `<div class="cap-bar-track"><div class="cap-bar-fill ${fillCls}" style="width:${pct}%;"></div></div>
+      <div class="evac-nums"><span>${evacuees.toLocaleString()} evacuees</span><span>${capacity.toLocaleString()} capacity</span></div>` : ''}
       ${center.address ? `<div class="evac-loc">${escapeNlpText(center.address)}</div>` : ''}
       ${center.map_link ? `<a class="evac-map-link" href="${escapeNlpText(center.map_link)}" target="_blank" rel="noopener noreferrer">Open in Google Maps ↗</a>` : ''}
       <div class="evac-loc">Added by ${escapeNlpText(center.created_by || 'LGU')}</div>
-      ${canEditCount ? `
+      ${canEditCount && hasCapacity ? `
       <div class="evac-edit-row">
         <input type="number" min="0" max="${capacity}" value="${evacuees}" id="evac-input-${Number(center.id)}">
         <button class="btn btn-outline btn-sm" onclick="updateEvacCount(${Number(center.id)})">Update count</button>
@@ -1434,8 +1435,6 @@ async function createEvacuationCenter(event){
     name: document.getElementById('evac-center-name').value.trim(),
     address: document.getElementById('evac-center-address').value.trim(),
     map_link: document.getElementById('evac-center-map-link').value.trim(),
-    capacity: Number(document.getElementById('evac-center-capacity').value),
-    evacuees: Number(document.getElementById('evac-center-count').value),
   };
   const alert = document.getElementById('evac-create-alert');
   const submitButton = event.currentTarget.querySelector('button[type="submit"]');
@@ -1451,10 +1450,9 @@ async function createEvacuationCenter(event){
     if (!response.ok) throw new Error(result.error || 'Could not add evacuation center.');
     form.reset();
     document.getElementById('evac-center-barangay').value = payload.barangay;
-    document.getElementById('evac-center-count').value = '0';
-    alert.textContent = 'Evacuation center added. Residents can now view it in the app.';
+    alert.textContent = 'Place added. Residents can now view it in the app.';
     alert.className = 'form-alert success show';
-    logAction('Evacuees', 'Create', `Added evacuation center "${payload.name}" in Brgy. ${payload.barangay}, ${city}.`);
+    logAction('Evacuees', 'Create', `Added place "${payload.name}" in Brgy. ${payload.barangay}, ${city}.`);
     document.getElementById('evac-barangay-select').value = payload.barangay;
     session.activeBarangay = payload.barangay;
     await loadEvacuationCenters(city, payload.barangay);
@@ -1609,7 +1607,7 @@ function renderNlpMonitor(){
   const eventHolder = document.getElementById('nlp-events-list');
   if(!statsHolder || !eventHolder) return;
 
-  const selectedBarangay = document.getElementById('reports-barangay-select')?.value || session?.activeBarangay || '';
+  const selectedBarangay = document.getElementById('reports-barangay-select')?.value || '';
   const city = normalizedPlace(currentCity());
   const events = NLP_EVENTS.filter(event => {
     const eventCity = normalizedPlace(event.city);
@@ -1668,7 +1666,7 @@ function renderNlpMonitor(){
 async function refreshNlpEvents(){
   const params = new URLSearchParams({action:'nlp-events', limit:'100'});
   const city = currentCity();
-  const barangay = document.getElementById('reports-barangay-select')?.value || session?.activeBarangay || '';
+  const barangay = document.getElementById('reports-barangay-select')?.value || '';
   const locationId = session?.assigned_location || locationIdForCity(city);
   if(locationId) params.set('location', locationId);
   else if(city) params.set('city', city);
@@ -1767,14 +1765,6 @@ function normalizeNlpPlatformEvent(event){
   };
 }
 
-function platformReportFallback(){
-  return REPORTS.map(report => ({...normalizePlatformReport({
-    ...report,
-    description: report.desc,
-    created_at: report.time,
-  }), key:`demo-${report.id}`, demo:true}));
-}
-
 async function refreshAllReports(){
   try{
     const response = await fetch(`${ADMIN_API_URL}?action=all-reports`, {credentials:'include', headers:{Accept:'application/json'}});
@@ -1796,8 +1786,7 @@ async function refreshAllReports(){
       const rightTime = Date.parse(String(right.timestamp).replace(' ', 'T')) || 0;
       return rightTime - leftTime;
     });
-    allReportsDemoFallback = serverRows.length === 0;
-    ALL_PLATFORM_REPORTS = serverRows.length ? serverRows : platformReportFallback();
+    ALL_PLATFORM_REPORTS = serverRows;
     allReportsFeedError = '';
     allReportsLastUpdated = new Date().toLocaleTimeString([], {hour:'numeric', minute:'2-digit', second:'2-digit'});
   }catch(error){
@@ -1808,8 +1797,7 @@ async function refreshAllReports(){
         : `The all-reports API could not be reached: ${error.message}`;
       allNlpIngestionConfigured = false;
       allNlpServiceHealth = {};
-    allReportsDemoFallback = true;
-    ALL_PLATFORM_REPORTS = platformReportFallback();
+    ALL_PLATFORM_REPORTS = [];
     console.warn('All-reports refresh failed:', error.message);
   }
   renderAllNlpMonitor();
@@ -1939,9 +1927,7 @@ function renderAllReports(){
   if(sync){
     const notice = allReportsFeedError
       ? `<span class="all-reports-error">${escapeNlpText(allReportsFeedError)}</span>`
-      : allReportsDemoFallback
-        ? '<span class="all-reports-demo">Showing built-in sample reports because the database has no report records yet.</span>'
-        : '';
+      : '';
     sync.innerHTML = `${notice}<span>${allReportsLastUpdated ? `Last synced ${escapeNlpText(allReportsLastUpdated)} · ` : ''}Refreshes every 5 seconds</span>`;
   }
 
@@ -1968,7 +1954,7 @@ function renderAllReports(){
           <span class="status-pill ${report.status === 'verified' ? 'status-verified' : report.status === 'rejected' ? 'status-rejected' : 'status-pending'}">${escapeNlpText(statusLabel)}</span>
           <span class="source-tag ${report.source === 'nlp' ? 'source-nlp' : 'source-citizen'}">${report.source === 'nlp' ? `NLP · ${escapeNlpText(report.sourceLabel)}` : 'Resident report'}</span>
         </div>
-        <div class="report-meta">${escapeNlpText(report.classification)} · ${escapeNlpText(report.reporter)} · ${formatNlpTime(report.timestamp)}${confidence}${urgency}${report.demo ? ' · sample' : ''}</div>
+        <div class="report-meta">${escapeNlpText(report.classification)} · ${escapeNlpText(report.reporter)} · ${formatNlpTime(report.timestamp)}${confidence}${urgency}</div>
         <div class="report-desc">${escapeNlpText(report.text)}</div>
         ${originalPost}
       </div>
@@ -2041,8 +2027,10 @@ function renderReports(){
   renderNlpMonitor();
   renderReportsFilterChips();
   const sel = document.getElementById('reports-barangay-select');
-  const scopeB = sel.value || session.activeBarangay;
-  session.activeBarangay = scopeB;
+  const scopeB = sel.value || 'All barangays';
+  document.getElementById('tb-scope').textContent = scopeB === 'All barangays'
+    ? `${currentCity()} — All barangays`
+    : `${currentCity()} — Brgy. ${scopeB}`;
   const cCity = currentCity();
   
   let list = REPORTS.filter(r => r.status !== 'rejected' && (r.city === cCity || !r.city) && (!scopeB || scopeB === 'All barangays' || r.barangay === scopeB));

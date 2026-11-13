@@ -1,16 +1,90 @@
 import { containsPoint } from './report-point.mjs';
+import { loadAdminFloodSignals } from './admin-flood-signals.mjs';
 import { map as leafletMap, geoJSON, tileLayer, circleMarker } from './map-vendor/leaflet.mjs';
 
-let map, baseTiles, registry, selected, currentLocation, areaLayer, selectedLayer, floodLayer;
+let map, baseTiles, mapIndexRegistry, detailRegistry, selected, currentLocation, areaLayer, selectedLayer, floodLayer, lifelineLayer;
 let reportPoint = null, pointMarker = null, storedPointLayer = null;
+let signalLayer = null, signalRequest = 0;
+let shadeUnknownBarangays = true;
+let lifelineRequest = 0;
+const lifelineCache = new Map();
+
+async function refreshFloodSignals() {
+  if (!map || !currentLocation) return;
+  const own = ++signalRequest, scope = currentLocation;
+  try {
+    const endpoint = ['localhost','127.0.0.1'].includes(location.hostname) ? '/api.php' : '/admin-api.php';
+    const data = await loadAdminFloodSignals(endpoint, scope, currentFeatures);
+    if (own!==signalRequest || scope!==currentLocation) return;
+    const signalStatus=document.getElementById('lgu-map-signal-status');
+    const pins=Array.isArray(data.pins)?data.pins:[];
+    const states=Array.isArray(data.cities)?data.cities:[];
+    const active=states.some(city=>city.phase==='ACTIVE');
+    const required=Number(data.required_posts)||20;
+    const minutes=Number(data.window_minutes)||1440;
+    const windowLabel=minutes%60===0?`${minutes/60} hour${minutes===60?'':'s'}`:`${minutes} minutes`;
+    const cityPosts=Number(states[0]?.post_count)||0;
+    const flood24h=Number(data.flood_signals_24h)||0;
+    const majoritySeverity=states[0]?.majority_severity||'Unspecified';
+    const summary=`${cityPosts} reported flood case${cityPosts===1?'':'s'} in the last ${windowLabel}. Most common reported severity: ${majoritySeverity}. Each case represents one distinct social post. ${flood24h} flood classifications in 24 hours (a separate total).`;
+    if(signalStatus){
+      if(pins.length) signalStatus.textContent=summary+' '+(active?'Active flood locations: ':'Provisional reported locations: ')+pins.map(pin=>`${pin.label} (${Number(pin.post_count)||0} posts; majority severity ${pin.severity||'Unspecified'})`).join(', ')+`. ${active?'The citywide signal is active.':`${required} distinct posts in ${windowLabel} activate the citywide signal.`} Reports are not officially verified.`;
+      else if(active) signalStatus.textContent=summary+' The citywide signal is active, but recent posts have not identified a supported barangay or verified landmark. Reports are not officially verified.';
+      else signalStatus.textContent=summary+` ${required} distinct posts in ${windowLabel} activate the citywide signal. Posts naming a supported barangay appear provisionally on both maps; reports are not officially verified.`;
+    }
+    if (data.provisional_fallback && signalStatus) signalStatus.textContent = pins.length
+      ? 'Provisional flooding reported in ' + pins.map(pin=>pin.label + ' (' + pin.post_count + ' posts)').join(', ') + '. Shaded from recent classified posts; citywide activation is not confirmed.'
+      : 'No classified flood posts from the last 24 hours could be matched to a barangay in this view.';
+    const features = (data.pins || []).flatMap(pin => {
+      const boundary = currentFeatures.find(feature => String(feature.id)===String(pin.barangay_feature_id));
+      if (!boundary) return [];
+      const hasExactPoint=pin.latitude!=null && pin.longitude!=null && Number.isFinite(Number(pin.latitude)) && Number.isFinite(Number(pin.longitude));
+      let geometry = hasExactPoint ? {type:'Point',coordinates:[Number(pin.longitude),Number(pin.latitude)]} : boundary.geometry;
+      if(!hasExactPoint && !shadeUnknownBarangays){
+        const bounds=geometryBounds(boundary.geometry);
+        if(bounds){let center=[(bounds.west+bounds.east)/2,(bounds.south+bounds.north)/2];if(!containsPoint(boundary.geometry,center[0],center[1])){const rings=boundary.geometry.type==='Polygon'?boundary.geometry.coordinates:boundary.geometry.coordinates?.[0];center=rings?.[0]?.[0]||center;}geometry={type:'Point',coordinates:center};}
+        else geometry=null;
+      }
+      return geometry ? [{type:'Feature',geometry,properties:pin}] : [];
+    });
+    if (scopeBoundary && (active || cityPosts>0)) {
+      features.push({...scopeBoundary,properties:{label:currentLocation,precision_level:active?'city':'city-monitoring',post_count:cityPosts,severity:majoritySeverity,latest_post_at:states.map(city=>city.last_post_at).filter(Boolean).sort().at(-1)}});
+    }
+    if (!signalLayer) signalLayer = geoJSON(collection([]), {
+      style: feature => ({color:'#2563eb',weight:3,dashArray:feature.properties.precision_level==='city-monitoring'?'7 5':null,fill:feature.geometry.type!=='Point',fillColor:'#fbbf24',fillOpacity:feature.properties.precision_level==='city' ? 0.08 : feature.properties.precision_level==='city-monitoring' ? 0 : 0.2}),
+      pointToLayer: (feature,latlng)=>circleMarker(latlng,{radius:9,color:'#a16207',dashArray:'4 3',fillColor:'#fbbf24',fillOpacity:.8}),
+      onEachFeature(feature,layer) {
+        const node=document.createElement('div'), p=feature.properties;
+        node.textContent=`REPORTED FLOODING — not officially verified. ${p.label} (${p.precision_level}). ${p.post_count} associated posts. Severity: ${p.severity}. Latest: ${p.latest_post_at} UTC.`;
+        layer.bindPopup(node);
+      },
+    }).addTo(map);
+    signalLayer.clearLayers().addData(collection(features));
+  } catch (error) {
+    if (own===signalRequest) {
+      signalLayer?.clearLayers();
+      const signalStatus=document.getElementById('lgu-map-signal-status');
+      if(signalStatus) signalStatus.textContent='NLP map locations could not be loaded: ' + error.message + '. Refresh the Reports page to retry.';
+    }
+  }
+}
+setInterval(()=>{ if(document.getElementById('lgu-report-map')?.offsetParent) refreshFloodSignals(); },30000);
 let requestNumber = 0;
 let currentFeatures = [];
+let currentBarangays = [];
 let currentReports = [];
 let scopeBoundary = null, scopeLayer = null;
 let canHideReports=false, canDeleteReports=false;
 const form = document.getElementById('lgu-map-report-form');
 const select = document.getElementById('lgu-map-barangay');
 const message = document.getElementById('lgu-map-report-message');
+const signalStatus = document.createElement('p');
+signalStatus.id = 'lgu-map-signal-status';
+signalStatus.className = 'lgu-map-signal-status';
+signalStatus.setAttribute('role','status');
+signalStatus.setAttribute('aria-live','polite');
+signalStatus.textContent = 'Loading active NLP flood locations...';
+form.prepend(signalStatus);
 const collection = (features) => ({ type: 'FeatureCollection', features });
 const severityRank = { low: 1, medium: 2, high: 3 };
 const colors = { low: '#16a34a', medium: '#f59e0b', high: '#dc2626' };
@@ -37,6 +111,13 @@ reportStyles.textContent = `
 #lgu-map-report-form input::placeholder, #lgu-map-report-form textarea::placeholder { color:var(--ink-faint); }
 #lgu-map-report-form input:focus-visible, #lgu-map-report-form select:focus-visible, #lgu-map-report-form textarea:focus-visible { outline:2px solid var(--blue-100); outline-offset:2px; border-color:var(--blue-500); }
 #lgu-map-report-form #lgu-map-severity { border-left:4px solid var(--severity-color); }
+.lgu-lifeline-toggle { position:absolute; z-index:1000; top:10px; left:52px; max-width:calc(100% - 64px); padding:8px 10px; border:1px solid #cbd5e1; border-radius:8px; background:#fff; color:#172b4d; box-shadow:0 1px 5px #0f172a33; font:500 11px/1.4 Inter,system-ui,sans-serif; }
+.lgu-lifeline-toggle label { display:flex; align-items:center; gap:7px; cursor:pointer; }
+.lgu-lifeline-toggle label + label { margin-top:6px; align-items:flex-start; }
+.lgu-lifeline-toggle input { width:auto !important; margin:0; }
+.lgu-lifeline-toggle label + label span { line-height:1.35; }
+.lgu-lifeline-status { display:block; margin-top:3px; color:#475569; font-size:10px; }
+.lgu-lifeline-legend { display:block; max-width:320px; margin-top:3px; color:#64748b; font-size:9px; line-height:1.35; }
 #lgu-report-point-detail { padding:10px 12px; border-radius:10px; background:var(--blue-100); color:var(--ink-soft); overflow-wrap:anywhere; }
 #lgu-map-report-form button { margin-top:8px; min-height:42px; font-size:13px; border-radius:10px; }
 .report-draft-queue { grid-column:1/-1; min-width:0; padding:18px; border:1px solid var(--line); border-radius:12px; background:var(--mist-50); }
@@ -48,6 +129,7 @@ reportStyles.textContent = `
 .report-draft-queue-row button { flex-shrink:0; font-size:12px; border-radius:8px; }
 .lgu-map-report-message { padding:0 24px 20px; font-size:12px; line-height:1.6; }
 .lgu-map-report-message:empty { display:none; }
+.lgu-map-signal-status { padding:10px 12px; margin:0 0 4px; border-radius:10px; background:#eff6ff; color:#1e40af; font-size:12px; line-height:1.5; }
 @media(max-width:850px) { #lgu-report-map { min-height:320px; } .lgu-report-map-layout { padding:18px; gap:18px; } }
 `;
 document.head.append(reportStyles);
@@ -55,7 +137,7 @@ document.head.append(reportStyles);
 function syncLayers() {
   if (!map) return;
   // Static borders stay mounted while live reports refresh.
-  selectedLayer.clearLayers().addData(collection(selected ? [selected] : []));
+  selectedLayer.clearLayers().addData(collection(selected?.geometry ? [selected] : []));
   const affected = currentFeatures.flatMap((feature) => {
     const matches = currentReports.filter((report) => report.latitude == null && !report.map_hidden && !['rejected','resolved','cancelled'].includes(report.status) &&
       (report.barangay_feature_id ? String(report.barangay_feature_id) === String(feature.id) :
@@ -80,12 +162,17 @@ function clearReportPoint() {
   document.getElementById('lgu-report-point-detail').textContent = 'Click a specific street on the map to add an exact report pin.';
 }
 function choosePoint(latlng) {
-  if (!scopeBoundary || !containsPoint(scopeBoundary.geometry,latlng.lng,latlng.lat)) {
+  if (scopeBoundary && !containsPoint(scopeBoundary.geometry,latlng.lng,latlng.lat)) {
     clearReportPoint();
     message.textContent = 'That point is outside your assigned city or province boundary.';
     return;
   }
   const containingFeature = currentFeatures.find(item => containsPoint(item.geometry,latlng.lng,latlng.lat));
+  if (!scopeBoundary && !containingFeature) {
+    clearReportPoint();
+    message.textContent = 'Exact map pins are not available for this location yet. Select its barangay and add the street or landmark by name.';
+    return;
+  }
   const feature = containingFeature || selected;
   if(!feature) {
     clearReportPoint();
@@ -100,28 +187,49 @@ function choosePoint(latlng) {
   message.textContent = containingFeature ? '' : 'Pin is inside your LGU boundary. Confirm that the manually selected barangay is correct; this point has no matching barangay polygon.';
 }
 const pointDetail = document.createElement('p'); pointDetail.id = 'lgu-report-point-detail'; pointDetail.className = 'view-sub'; pointDetail.setAttribute('aria-live','polite');
-select.after(pointDetail);
+const selectControl = select.closest('.admin-search-select-wrap') || select;
+selectControl.after(pointDetail);
 const streetLabel = document.createElement('label'); streetLabel.textContent = 'Street or landmark (optional)'; streetLabel.htmlFor = 'lgu-map-street';
 const streetInput = document.createElement('input'); streetInput.id = 'lgu-map-street'; streetInput.maxLength = 150; streetInput.placeholder = 'Name of the street or nearby landmark';
 pointDetail.after(streetLabel,streetInput);
 clearReportPoint();
 function chooseBarangay(id, zoom = true) {
   if(String(selected?.id || '') !== String(id || '')) clearReportPoint();
-  selected = currentFeatures.find((feature) => String(feature.id) === String(id)) || null;
+  selected = currentBarangays.find((feature) => String(feature.id) === String(id)) || null;
   select.value = selected ? String(selected.id) : '';
+  window.refreshAdminSearchSelects?.();
   syncLayers();
-  if (selected && zoom) fitFeatures([selected]);
+  if (selected?.geometry && zoom) fitFeatures([selected]);
 }
 
 function createMap() {
   const container = document.getElementById('lgu-report-map');
-  map = leafletMap(container, { preferCanvas: false, scrollWheelZoom: true }).setView([14.6,121],10);
+  map = leafletMap(container, { preferCanvas: false, scrollWheelZoom: true }).setView([12.5,122],5);
   map.attributionControl.setPrefix(false);
   map.on('click', (event) => choosePoint(event.latlng));
   for (const [name, order] of [['reportAreas',410],['reportFloods',420],['reportSelection',430],['reportScope',440]]) {
     map.createPane(name).style.zIndex = order;
     map.getPane(name).style.pointerEvents = 'none';
   }
+  map.createPane('reportLifelines').style.zIndex=460;
+  lifelineLayer=geoJSON(collection([]),{
+    pane:'reportLifelines',
+    pointToLayer(feature,latlng){const colors={health:'#dc2626',education:'#2563eb',worship:'#7c3aed',bridge:'#475569',transit:'#0891b2',public_safety:'#ea580c',government:'#15803d',utility:'#a16207'};const color=colors[feature.properties.category]||'#475569';return circleMarker(latlng,{radius:6,color:'#fff',weight:2,fillColor:color,fillOpacity:.95,bubblingMouseEvents:false});},
+    onEachFeature(feature,layer){const popup=document.createElement('div'),title=document.createElement('strong'),detail=document.createElement('p'),source=document.createElement('small');title.textContent=feature.properties.name;detail.textContent=feature.properties.label;source.textContent='OpenStreetMap contributor data';popup.append(title,detail,source);layer.bindPopup(popup);},
+  }).addTo(map);
+  const lifelineControl=document.createElement('div');lifelineControl.className='lgu-lifeline-toggle';
+  const lifelineLabel=document.createElement('label'),lifelineCheckbox=document.createElement('input');lifelineCheckbox.type='checkbox';lifelineCheckbox.checked=true;
+  const lifelineTitle=document.createElement('span');lifelineTitle.textContent='Nearby lifelines';lifelineLabel.append(lifelineCheckbox,lifelineTitle);
+  const lifelineStatus=document.createElement('span');lifelineStatus.className='lgu-lifeline-status';lifelineStatus.textContent='Churches, bridges, health, schools, transit, services';
+  const lifelineLegend=document.createElement('span');lifelineLegend.className='lgu-lifeline-legend';lifelineLegend.textContent='Purple worship · gray bridges · red health · blue schools · teal transit · orange safety · green government · brown utilities';
+  try{shadeUnknownBarangays=localStorage.getItem('bahaba-shade-unknown-barangays')!=='false';}catch{}
+  const shadeLabel=document.createElement('label'),shadeCheckbox=document.createElement('input');shadeCheckbox.type='checkbox';shadeCheckbox.checked=shadeUnknownBarangays;
+  const shadeTitle=document.createElement('span');shadeTitle.textContent='Shade whole barangay if location is unclear';shadeLabel.append(shadeCheckbox,shadeTitle);
+  shadeCheckbox.addEventListener('change',()=>{shadeUnknownBarangays=shadeCheckbox.checked;try{localStorage.setItem('bahaba-shade-unknown-barangays',String(shadeUnknownBarangays));}catch{};refreshFloodSignals();});
+  lifelineControl.append(lifelineLabel,lifelineStatus,lifelineLegend,shadeLabel);container.append(lifelineControl);
+  for(const eventName of ['click','mousedown','dblclick','touchstart'])lifelineControl.addEventListener(eventName,event=>event.stopPropagation());
+  lifelineCheckbox.addEventListener('change',()=>{if(lifelineCheckbox.checked)loadLifelines(lifelineStatus);else{lifelineRequest++;lifelineLayer.clearLayers();lifelineStatus.textContent='Lifeline layer hidden';}});
+  map.lifelineToggle=lifelineCheckbox;map.lifelineStatus=lifelineStatus;
   areaLayer = geoJSON(collection([]), {
     pane: 'reportAreas', interactive:false, style: { color: '#6995b8', weight: 1, fillColor: '#2478dd', fillOpacity: .07 },
     onEachFeature(feature, layer) {
@@ -171,53 +279,126 @@ function createMap() {
     maxZoom:19, attribution:'&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors',
   });
   baseTiles.on('tileload',ready).on('tileerror',retry).addTo(map);
-  setTimeout(() => { if (!loading.hidden) retry(); }, 12000);
+  setTimeout(() => { if (!loading.hidden) retry(); }, 5000);
   new ResizeObserver(() => map.invalidateSize({pan:false})).observe(container);
   syncLayers();
 }
+
+function geometryBounds(geometry){
+  let south=90,west=180,north=-90,east=-180;
+  const visit=value=>{if(Array.isArray(value)&&typeof value[0]==='number'&&typeof value[1]==='number'){west=Math.min(west,value[0]);east=Math.max(east,value[0]);south=Math.min(south,value[1]);north=Math.max(north,value[1]);}else if(Array.isArray(value))value.forEach(visit);};
+  visit(geometry?.coordinates);
+  return south<=north&&west<=east?{south,west,north,east}:null;
+}
+function lifelineCategory(tags){
+  if(tags.amenity==='place_of_worship')return 'worship';
+  if(['hospital','clinic','doctors','health_centre'].includes(tags.amenity)||['hospital','clinic','doctor','centre'].includes(tags.healthcare))return 'health';
+  if(['school','college','university','kindergarten'].includes(tags.amenity))return 'education';
+  if(tags.bridge==='yes'||tags.man_made==='bridge')return 'bridge';
+  if(['bus_station','ferry_terminal','bus_stop'].includes(tags.amenity)||tags.highway==='bus_stop'||['station','halt'].includes(tags.railway)||tags.public_transport==='station'||tags.aeroway==='terminal')return 'transit';
+  if(['fire_station','police'].includes(tags.amenity))return 'public_safety';
+  if(tags.office==='government'||tags.amenity==='townhall')return 'government';
+  if(['substation','plant','generator'].includes(tags.power)||['water_works','pumping_station'].includes(tags.man_made))return 'utility';
+  return null;
+}
+async function loadLifelines(statusNode){
+  if(!lifelineLayer)return;
+  if(!scopeBoundary){statusNode.textContent='Lifeline places unavailable for this map boundary';return;}
+  const own=++lifelineRequest,scope=currentLocation;
+  const cached=lifelineCache.get(scope);
+  if(cached){lifelineLayer.clearLayers().addData(collection(cached));statusNode.textContent=`${cached.length} nearby features · OpenStreetMap`;return;}
+  try{const saved=JSON.parse(localStorage.getItem(`bahaba-lifelines-v1-${scope}`)||'null');if(saved?.expires>Date.now()&&Array.isArray(saved.features)){lifelineCache.set(scope,saved.features);lifelineLayer.clearLayers().addData(collection(saved.features));statusNode.textContent=`${saved.features.length} nearby features · OpenStreetMap`;return;}}catch{}
+  const bounds=geometryBounds(scopeBoundary.geometry);
+  if(!bounds){statusNode.textContent='LGU boundary unavailable for nearby places';return;}
+  statusNode.textContent='Loading nearby places from OpenStreetMap…';
+  const bbox=`${bounds.south},${bounds.west},${bounds.north},${bounds.east}`;
+  const query=`[out:json][timeout:20];(nwr["amenity"~"^(place_of_worship|hospital|clinic|doctors|health_centre|school|college|university|kindergarten|bus_station|ferry_terminal|bus_stop|fire_station|police|townhall)$"](${bbox});nwr["healthcare"~"^(hospital|clinic|doctor|centre)$"](${bbox});nwr["office"="government"](${bbox});nwr["bridge"="yes"](${bbox});way["man_made"="bridge"](${bbox});nwr["railway"~"^(station|halt)$"](${bbox});nwr["public_transport"="station"](${bbox});nwr["aeroway"="terminal"](${bbox});nwr["power"~"^(substation|plant|generator)$"](${bbox});nwr["man_made"~"^(water_works|pumping_station)$"](${bbox}););out center tags;`;
+  try{
+    const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),25000);
+    let response;
+    try{response=await fetch('https://overpass-api.de/api/interpreter?data='+encodeURIComponent(query),{signal:controller.signal,headers:{Accept:'application/json'}});}finally{clearTimeout(timeout);}
+    if(!response.ok)throw Error('OpenStreetMap query failed');
+    const data=await response.json();if(own!==lifelineRequest||scope!==currentLocation)return;
+    const features=[];const seen=new Set();
+    for(const element of data.elements||[]){
+      const tags=element.tags||{},category=lifelineCategory(tags);if(!category)continue;
+      const lat=element.lat??element.center?.lat,lon=element.lon??element.center?.lon;if(!Number.isFinite(lat)||!Number.isFinite(lon)||!containsPoint(scopeBoundary.geometry,lon,lat))continue;
+      const key=`${element.type}/${element.id}`;if(seen.has(key))continue;seen.add(key);
+      const name=tags.name||tags.operator||({worship:'Place of worship',health:'Health facility',education:'School',bridge:'Bridge',transit:'Transit stop',public_safety:'Public safety service',government:'Government service',utility:'Utility facility'}[category]);
+      features.push({type:'Feature',geometry:{type:'Point',coordinates:[lon,lat]},properties:{name,label:category.replace('_',' '),category}});
+    }
+    lifelineCache.set(scope,features);try{localStorage.setItem(`bahaba-lifelines-v1-${scope}`,JSON.stringify({expires:Date.now()+86400000,features}));}catch{}lifelineLayer.clearLayers().addData(collection(features));statusNode.textContent=`${features.length} nearby features · OpenStreetMap`;
+  }catch{if(own===lifelineRequest)statusNode.textContent='Nearby-place data unavailable · OpenStreetMap';}
+}
+
+createMap();
 
 window.addEventListener('bahaba-reports-map', async (event) => {
   const request = ++requestNumber;
   const { locationId, canReport, reports } = event.detail;
   canHideReports=Boolean(event.detail.canHide); canDeleteReports=Boolean(event.detail.canDelete);
   form.hidden = !canReport;
-  if (!locationId) return;
+  if (!locationId) {
+    select.replaceChildren(new Option('Choose a location first',''));
+    window.refreshAdminSearchSelects?.();
+    message.textContent = 'Choose a supported location to load its barangays.';
+    return;
+  }
   try {
-    registry ||= Promise.all([
-      fetch('./map-data/barangays.json?v=20261009-detailed').then(response => { if (!response.ok) throw Error('Barangay boundaries unavailable.'); return response.json(); }),
-      fetch('./map-data/lgu-boundaries.json?v=20261009-city-borders').then(response => { if (!response.ok) throw Error('LGU boundaries unavailable.'); return response.json(); }),
-      fetch('./map-data/locations.json').then(response => { if (!response.ok) throw Error('Map locations unavailable.'); return response.json(); }),
+    mapIndexRegistry ||= Promise.all([
+      fetch('./map-data/locations.json?v=20261013-mapfix2').then(response => { if (!response.ok) throw Error('Map locations unavailable.'); return response.json(); }),
+      fetch('./map-data/barangay-options.json?v=20261013-mapfix').then(response => { if (!response.ok) throw Error('Barangay directory unavailable.'); return response.json(); }),
+      fetch('./psgc-registry.json?v=20261013-mapfix3').then(response => { if (!response.ok) throw Error('Supported location registry unavailable.'); return response.json(); }),
     ]);
-    const [geometry, borders, config] = await registry;
+    const [config, barangayDirectory, psgcRegistry] = await mapIndexRegistry;
     if (request !== requestNumber) return;
-    const location = config.locations.find(item => item.id === locationId);
-    if (!location) throw Error('Choose a supported location.');
+    const mapLocation = config.locations.find(item => item.id === locationId);
+    const location = mapLocation || event.detail.locationInfo || psgcRegistry.locations.find(item => item.id === locationId);
+    if (!location) throw Error('Location details are unavailable. Refresh the location selector and try again.');
+    let geometry = { features: [] }, borders = { features: [] };
+    if (mapLocation) {
+      detailRegistry ||= Promise.all([
+        fetch('./map-data/barangays.json?v=20261013-mapfix2').then(response => { if (!response.ok) throw Error('Barangay boundaries unavailable.'); return response.json(); }),
+        fetch('./map-data/lgu-boundaries.json?v=20261013-mapfix2').then(response => { if (!response.ok) throw Error('LGU boundaries unavailable.'); return response.json(); }),
+      ]);
+      [geometry, borders] = await detailRegistry;
+      if (request !== requestNumber) return;
+    }
     scopeBoundary = borders.features.find(feature => feature.id === locationId);
-    if (!scopeBoundary) throw Error('Boundary unavailable for this LGU.');
     const changed = currentLocation !== locationId;
     currentLocation = locationId;
+    signalLayer?.clearLayers();
     currentReports = reports || [];
-    currentFeatures = geometry.features.filter(feature => feature.properties.city === location.map_city &&
+    currentFeatures = geometry.features.filter(feature => feature.properties.city === (location.map_city || location.city) &&
       (!location.map_municipality || feature.properties.municipality === location.map_municipality));
+    refreshFloodSignals();
+    currentBarangays = currentFeatures.length ? currentFeatures : (barangayDirectory.locations?.[locationId] || []).map((name) => ({ id: name, properties: { name }, geometry: null }));
     document.getElementById('lgu-report-map-scope').textContent = location.name;
     if (changed) {
       selected = null;
       clearReportPoint();
       select.replaceChildren(new Option('Select a barangay or click the map',''));
-      [...currentFeatures].sort((a,b) => a.properties.name.localeCompare(b.properties.name)).forEach(feature =>
+      [...currentBarangays].sort((a,b) => a.properties.name.localeCompare(b.properties.name)).forEach(feature =>
         select.add(new Option([feature.properties.name,feature.properties.municipality].filter(Boolean).join(' · '),feature.id)));
     }
-    if (!map) createMap();
     if (changed) {
       areaLayer.clearLayers().addData(collection(currentFeatures));
-      scopeLayer.clearLayers().addData(collection([scopeBoundary]));
+      scopeLayer.clearLayers().addData(collection(scopeBoundary ? [scopeBoundary] : []));
     }
+    pointDetail.textContent = scopeBoundary
+      ? 'Click a specific street on the map to add an exact report pin.'
+      : 'Map pins are not available for this location yet. Select a barangay and add the street or landmark by name.';
+    message.textContent = currentBarangays.length ? '' : 'The map is available, but barangay data could not be found for this location.';
+    if(map.lifelineToggle?.checked){lifelineLayer.clearLayers();loadLifelines(map.lifelineStatus);}
     syncLayers();
     requestAnimationFrame(() => {
       map.invalidateSize({pan:false});
-      if (changed) fitFeatures([scopeBoundary]);
+      if (changed) {
+        if (scopeBoundary) fitFeatures([scopeBoundary]);
+        else if (currentFeatures.length) fitFeatures(currentFeatures, 12);
+      }
     });
-  } catch (error) { registry = null; message.textContent = error.message; }
+  } catch (error) { mapIndexRegistry = null; detailRegistry = null; message.textContent = error.message; }
 });
 
 select.addEventListener('change', () => chooseBarangay(select.value));
@@ -251,10 +432,10 @@ function renderQueue(){
 addReport.addEventListener('click', () => {
   if(sendingReports || !form.reportValidity()) return;
   if(!selected) { message.textContent = 'Select the affected barangay first.'; return; }
-  if(streetInput.value.trim() && !reportPoint) { message.textContent = 'Click the street on the map to place its report pin first.'; return; }
+  if(streetInput.value.trim() && !reportPoint && scopeBoundary) { message.textContent = 'Click the street on the map to place its report pin first.'; return; }
   const description = document.getElementById('lgu-map-description').value.trim();
   if(!description) { message.textContent = 'Describe the flooding first.'; return; }
-  pendingReports.push({location_id:currentLocation, barangay_feature_id:selected.id, barangay:selected.properties.name,
+  pendingReports.push({location_id:currentLocation, barangay_feature_id:selected.geometry ? selected.id : null, barangay:selected.properties.name,
     latitude:reportPoint?.latitude ?? null, longitude:reportPoint?.longitude ?? null, street_name:streetInput.value.trim(),
     severity:document.getElementById('lgu-map-severity').value, description});
   document.getElementById('lgu-map-description').value = ''; streetInput.value = ''; clearReportPoint();

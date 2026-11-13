@@ -501,10 +501,6 @@ if ($method === 'GET' && $action === 'nlp-events') {
         $location = requested_location($admin, $admin['assigned_location'] ?? $admin['city'] ?? null);
         $where .= ' AND location_id = :location_id';
         $params['location_id'] = $location['id'];
-        if (!empty($admin['barangay'])) {
-            $where .= ' AND barangay = :barangay';
-            $params['barangay'] = $admin['barangay'];
-        }
     } else {
         $requestedLocation = trim((string) ($_GET['location'] ?? ''));
         if ($requestedLocation !== '') {
@@ -527,7 +523,7 @@ if ($method === 'GET' && $action === 'nlp-events') {
     $limit = min(100, max(1, (int) ($_GET['limit'] ?? 50)));
     $eventsStmt = $pdo->prepare(
         'SELECT id, source, source_post_id, post_text, post_url, location, city, barangay, classification,
-                severity, urgency, confidence_percent, detected_at, received_at
+                severity, urgency, confidence_percent, detected_at, received_at, published_at
          FROM nlp_events ' . $where . ' ORDER BY detected_at DESC, id DESC LIMIT :limit'
     );
     foreach ($params as $key => $value) $eventsStmt->bindValue($key, $value);
@@ -728,8 +724,8 @@ if ($method === 'POST') {
         $barangay = trim((string) ($input['barangay'] ?? ''));
         $address = trim((string) ($input['address'] ?? ''));
         $mapLink = trim((string) ($input['map_link'] ?? ''));
-        $capacity = $parseUnsignedInteger($input['capacity'] ?? null);
-        $evacuees = $parseUnsignedInteger($input['evacuees'] ?? 0);
+        $capacity = array_key_exists('capacity', $input) ? $parseUnsignedInteger($input['capacity']) : 0;
+        $evacuees = array_key_exists('evacuees', $input) ? $parseUnsignedInteger($input['evacuees']) : 0;
         if ($name === '' || strlen($name) > 255) {
             http_response_code(422);
             echo json_encode(['error' => 'Enter a center name no longer than 255 characters.']);
@@ -750,9 +746,9 @@ if ($method === 'POST') {
             echo json_encode(['error' => 'Enter a valid Google Maps link.']);
             exit;
         }
-        if ($capacity === null || $capacity < 1 || $capacity > 1000000) {
+        if ($capacity === null || $capacity > 1000000) {
             http_response_code(422);
-            echo json_encode(['error' => 'Capacity must be a whole number between 1 and 1,000,000.']);
+            echo json_encode(['error' => 'Capacity must be a whole number between 0 and 1,000,000.']);
             exit;
         }
         if ($evacuees === null || $evacuees > $capacity) {

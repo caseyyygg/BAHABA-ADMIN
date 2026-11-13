@@ -3,7 +3,7 @@
  let page=1,sequence=0,loaded=false,timer;
  const view=document.getElementById('view-reports');if(!view)return;
  const panel=document.createElement('section');panel.id='report-manager';panel.className='panel report-manager-panel';
- panel.innerHTML=`<div class="panel-head"><div><h3>Manage all report pins</h3><p class="view-sub" id="managed-scope">Reports remain here when hidden from the map.</p></div><button type="button" class="btn btn-outline btn-sm" id="managed-refresh">Refresh</button></div>
+ panel.innerHTML=`<div class="panel-head"><div><h3>Manage all report pins</h3><p class="view-sub" id="managed-scope">Submitted reports only. Unverified NLP flood signals are shown separately on the map.</p></div><button type="button" class="btn btn-outline btn-sm" id="managed-refresh">Refresh</button></div>
  <div class="managed-toolbar"><label>Search reports<input id="managed-search" type="search" placeholder="Report ID, city, barangay or description"></label><label>Map visibility<select id="managed-visibility"><option value="all">All pins</option><option value="hidden">Hidden pins</option><option value="visible">Not hidden</option></select></label></div>
  <div class="managed-table-scroll"><table class="compact-data-table"><thead><tr><th>ID</th><th>Location</th><th>Report</th><th>Source</th><th>Severity</th><th>Map</th><th>Actions</th></tr></thead><tbody id="managed-rows"></tbody></table></div><div class="managed-footer"><span id="managed-count" role="status"></span><div><button type="button" class="btn btn-outline btn-sm" id="managed-prev">Previous</button><button type="button" class="btn btn-outline btn-sm" id="managed-next">Next</button></div></div>`;
  view.querySelector('.lgu-report-map-panel').after(panel);
