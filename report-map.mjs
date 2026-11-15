@@ -147,7 +147,7 @@ function syncLayers() {
     return [{ ...feature, properties: { ...feature.properties, severity } }];
   });
   floodLayer.clearLayers().addData(collection(affected));
-  storedPointLayer?.clearLayers().addData(collection(currentReports.filter(report => report.latitude != null && report.longitude != null && !report.map_hidden && !['rejected','resolved','cancelled'].includes(report.status)).map(report => ({type:'Feature',geometry:{type:'Point',coordinates:[Number(report.longitude),Number(report.latitude)]},properties:{id:report.id,barangay:report.barangay,severity:report.severity,description:report.desc || report.description}}))));
+  storedPointLayer?.clearLayers().addData(collection(currentReports.filter(report => report.latitude != null && report.longitude != null && !report.map_hidden && !['rejected','resolved','cancelled'].includes(report.status)).map(report => ({type:'Feature',geometry:{type:'Point',coordinates:[Number(report.longitude),Number(report.latitude)]},properties:{id:report.id,barangay:report.barangay,city:report.city,severity:report.severity,status:report.status,reporter:report.reporter,platform:report.platform,time:report.time,gps_accuracy_m:report.gps_accuracy_m,description:report.desc || report.description}}))));
 }
 
 function fitFeatures(features, maxZoom = 16) {
@@ -249,11 +249,18 @@ function createMap() {
 
   map.createPane('reportPins').style.zIndex=450;
   storedPointLayer = geoJSON(collection([]), {
-    pointToLayer:(feature,latlng) => circleMarker(latlng,{pane:'reportPins',radius:8,color:'#ffffff',weight:2,fillColor:colors[feature.properties.severity] || colors.low,fillOpacity:1,interactive:true,bubblingMouseEvents:false}),
+    pointToLayer:(feature,latlng) => circleMarker(latlng,{pane:'reportPins',radius:feature.properties.platform==='resident-gps'?7:8,color:'#ffffff',weight:2,fillColor:feature.properties.platform==='resident-gps'?'#1677e8':colors[feature.properties.severity] || colors.low,fillOpacity:1,interactive:true,bubblingMouseEvents:false}),
     onEachFeature(feature,layer){
       const popup=document.createElement('div');popup.className='report-pin-popup';
       const title=document.createElement('strong');title.textContent='Report #'+feature.properties.id+' · '+feature.properties.barangay;
       const description=document.createElement('p');description.textContent=feature.properties.severity+' · '+(feature.properties.description||'');popup.append(title,description);
+      if(feature.properties.platform==='resident-gps'){
+        const details=document.createElement('p');
+        const [longitude,latitude]=feature.geometry.coordinates;
+        const accuracy=Number(feature.properties.gps_accuracy_m);
+        details.textContent=`Resident GPS report · ${feature.properties.status||'pending'} · ${feature.properties.reporter||'Resident'} · ${feature.properties.city||''} · ${latitude.toFixed(6)}, ${longitude.toFixed(6)} · ${Number.isFinite(accuracy)?`±${accuracy} m`:'accuracy unavailable'} · ${feature.properties.time||'time unavailable'}`;
+        popup.append(details);
+      }
       for(const [action,label,allowed] of [['hide','Hide from map',canHideReports],['delete','Delete report',canDeleteReports]]){
         if(!allowed)continue;const button=document.createElement('button');button.type='button';button.className='btn btn-outline btn-sm';button.textContent=label;
         button.addEventListener('click',event=>{event.stopPropagation();map.closePopup();window.manageReport(Number(feature.properties.id),action);});popup.append(button);

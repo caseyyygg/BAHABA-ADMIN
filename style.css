@@ -109,6 +109,8 @@ a{color:inherit;}
 .sb-link.disabled{color:#3f597e; cursor:not-allowed;}
 .sb-link.disabled:hover{background:none; color:#3f597e;}
 .sb-link svg{flex-shrink:0;}
+.resident-report-count{margin-left:auto;min-width:18px;padding:1px 6px;border-radius:999px;background:#1677e8;color:#fff;font-size:10px;font-weight:700;line-height:16px;text-align:center;}
+#resident-report-count + .sb-lock{margin-left:6px;}
 .sb-lock{margin-left:auto; opacity:.8;}
 .sb-foot{margin-top:auto; padding-top:14px; border-top:1px solid rgba(255,255,255,.08);}
 .sb-switch{

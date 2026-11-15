@@ -257,6 +257,8 @@ let allNlpIngestionConfigured = false;
 let allNlpServiceHealth = {};
 let allReportsLastUpdated = '';
 let allReportsFeedError = '';
+const knownResidentReportIds = new Set();
+const initializedResidentReportScopes = new Set();
 
 // Session persistence
 const SESSION_STORAGE_KEY = 'bahaba_admin_session';
@@ -634,6 +636,8 @@ async function signOut(){
   } catch(e){}
 
   stopNlpPolling();
+  knownResidentReportIds.clear();
+  initializedResidentReportScopes.clear();
   session = null;
   clearSessionFromStorage();
   closeAllDropdowns();
@@ -1712,7 +1716,10 @@ async function refreshNlpEvents(){
 function startNlpPolling(){
   stopNlpPolling();
   refreshNlpEvents();
-  nlpPollTimer = window.setInterval(refreshNlpEvents, 5000);
+  nlpPollTimer = window.setInterval(() => {
+    refreshNlpEvents();
+    fetchReports({ notifyNewResident: true, notifyErrors: false });
+  }, 5000);
 }
 
 function startAllReportsPolling(){
@@ -1989,7 +1996,7 @@ function renderReportsFilterChips(){
 }
 function setReportsFilter(id){ reportsFilter = id; renderReports(); }
 
-async function fetchReports(){
+async function fetchReports({ notifyNewResident = false, notifyErrors = true } = {}){
   try{
     const locationId = currentAdminLocationId();
     const response = await fetch(`${ADMIN_API_URL}?action=reports&location=${encodeURIComponent(locationId)}`, {credentials:'include'});
@@ -2005,13 +2012,37 @@ async function fetchReports(){
       reporter: report.reporter,
       source: report.source,
       platform: report.platform,
+      created_at: report.created_at,
+      gps_accuracy_m: report.gps_accuracy_m,
       time: report.created_at ? new Date(report.created_at).toLocaleString() : '',
       desc: report.description,
       status: report.status,
       photo: Boolean(Number(report.photo)),
     }));
+    const residentReports = REPORTS.filter(report => report.platform === 'resident-gps');
+    const reportKeys = residentReports.map(report => `${locationId}:${report.id}`);
+    if(!initializedResidentReportScopes.has(String(locationId))){
+      reportKeys.forEach(key => knownResidentReportIds.add(key));
+      initializedResidentReportScopes.add(String(locationId));
+    }else{
+      const newReports = residentReports.filter(report =>
+        report.status === 'pending' && !knownResidentReportIds.has(`${locationId}:${report.id}`)
+      );
+      reportKeys.forEach(key => knownResidentReportIds.add(key));
+      if(notifyNewResident && newReports.length){
+        const first = newReports[0];
+        const place = [first.barangay, first.city].filter(Boolean).join(', ') || 'your assigned area';
+        showToast(newReports.length === 1
+          ? `New resident flood report in ${place} · ${first.time}.`
+          : `${newReports.length} new resident flood reports · latest in ${place}.`);
+      }
+    }
     renderReports();
   }catch(error){
+    if(!notifyErrors){
+      console.warn('Reports refresh failed:', error.message);
+      return;
+    }
     REPORTS = [];
     renderReports();
     showToast(error.message);
@@ -2019,6 +2050,15 @@ async function fetchReports(){
 }
 
 function renderReports(){
+  const pendingResidentReports = REPORTS.filter(report =>
+    report.platform === 'resident-gps' && report.status === 'pending'
+  ).length;
+  const reportCount = document.getElementById('resident-report-count');
+  if(reportCount){
+    reportCount.textContent = pendingResidentReports > 99 ? '99+' : String(pendingResidentReports);
+    reportCount.hidden = pendingResidentReports === 0;
+    reportCount.setAttribute('aria-label', `${pendingResidentReports} pending resident flood report${pendingResidentReports === 1 ? '' : 's'}`);
+  }
   window.renderReportManager?.();
   window.dispatchEvent(new CustomEvent('bahaba-reports-map', { detail: {
     locationId: currentAdminLocationId(),
